@@ -1,0 +1,15 @@
+# Python
+.env
+__pycache__/
+*.pyc
+.venv/
+dist/
+*.egg-info/
+
+# Next.js
+capture/.next/
+capture/node_modules/
+capture/.env.local
+
+# System
+.DS_Store

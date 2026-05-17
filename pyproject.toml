@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "notion-inbox"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.40.0",
+    "notion-client>=2.2.1",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.27.0",   # for fetching page metadata from URLs
+]
+
+[project.scripts]
+notion-triage = "notion_inbox.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["notion_inbox*"]
