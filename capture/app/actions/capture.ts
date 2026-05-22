@@ -1,6 +1,7 @@
 "use server";
 
 import { Client } from "@notionhq/client";
+import type { BlockObjectRequest } from "@notionhq/client/build/src/api-endpoints";
 
 const notion = new Client({ auth: process.env.NOTION_TOKEN });
 
@@ -14,7 +15,7 @@ export async function capture(prevState: string, formData: FormData): Promise<st
   const firstLine = content.split("\n")[0].slice(0, 200);
   const hasMoreContent = content !== firstLine;
 
-  const children: object[] = [];
+  const children: BlockObjectRequest[] = [];
   if (hasMoreContent) {
     children.push({
       object: "block",
