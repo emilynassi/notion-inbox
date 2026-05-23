@@ -55,12 +55,17 @@ Integration token: in `capture/.env.local` as `NOTION_TOKEN`
 
 **Important:** The integration must be connected to the *source* database pages directly — not to linked views or dashboard embeds. Linked views (e.g. "View of Notes*" inside the Inbox page) do NOT grant API access.
 
-| Database | REST API ID | Connected? |
-|---|---|---|
-| Notes* | `4d696684ea54825da8f081d6c3878e37` | ✅ |
-| Tasks* | TBD — need to connect integration + get ID | ❌ |
-| Resources* | TBD | ❌ |
-| Projects* | TBD | ❌ |
+Integration has full workspace access via Emily's Second Brain top-level page — no per-database sharing needed.
+
+| Database | REST API ID |
+|---|---|
+| Notes* | `4d696684ea54825da8f081d6c3878e37` |
+| Tasks* | `a5696684ea54829e975881a760956943` |
+| Resources* | `17696684ea54828cbb4201d6a0d64bd4` |
+| Projects* | `41896684ea54826f9b5181ef708163c6` |
+| Books* | `d2e96684ea548313945a01616a9da7a2` |
+| Concert Tracker | `ae1aacdа96754 91d8f9006297bd703c0` |
+| Recipes | `5e92b0fd2a4440bda68401c85a1f452e` |
 
 ### Notes* schema (capture target)
 - `Title` (title)
@@ -123,12 +128,13 @@ notion-inbox/
 
 1. [x] Project scaffold
 2. [x] Notion integration created (token obtained)
-3. [x] Capture app built — Next.js form, password auth, writes to Notes* with Status: Inbox
+3. [x] Capture app built — freeform textarea + optional URL, password auth, writes to Notes* with Status: Inbox
 4. [x] End-to-end capture tested locally (dev server)
-5. [ ] **Deploy capture app to Vercel** — push repo, connect Vercel, set env vars
-6. [ ] **Connect integration to Tasks*, Resources*, Projects*** — then get their REST API IDs
-7. [ ] **Triage CLI** — rewrite `notion_client.py` + `triage.py` + `cli.py` to use real schemas
-8. [ ] Install + test triage CLI end-to-end
+5. [x] Deployed to Vercel → **https://capture-alpha-seven.vercel.app**
+6. [x] GitHub repo → https://github.com/emilynassi/notion-inbox (connected to Vercel, auto-deploys on push)
+7. [x] Notion integration granted full workspace access via Emily's Second Brain top-level page
+8. [ ] **Triage CLI** — rewrite `notion_client.py` + `triage.py` + `cli.py` to use real schemas + all known databases
+9. [ ] Install + test triage CLI end-to-end
 
 ---
 
