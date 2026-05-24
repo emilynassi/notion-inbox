@@ -11,5 +11,8 @@ capture/.next/
 capture/node_modules/
 capture/.env.local
 
+# Claude Code local config
+.claude/
+
 # System
 .DS_Store
