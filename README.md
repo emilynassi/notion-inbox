@@ -2,10 +2,6 @@
 
 A personal capture → triage pipeline. Drop items into a web form from anywhere; a scheduled Claude agent runs every morning, classifies each item, and files it into the right Notion database automatically.
 
-**Live capture form:** https://capture-alpha-seven.vercel.app (password protected)
-
----
-
 ## How it works
 
 ```
