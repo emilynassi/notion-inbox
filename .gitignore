@@ -11,6 +11,9 @@ capture/.next/
 capture/node_modules/
 capture/.env.local
 
+# Project context (internal — kept private)
+CONTEXT.md
+
 # Claude Code local config
 .claude/
 
