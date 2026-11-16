@@ -72,7 +72,9 @@ const fileStore: Store = {
 };
 
 export function store(): Store {
-  if (process.env.BLOB_READ_WRITE_TOKEN) return blobStore;
+  // Connecting a Blob store in Vercel sets BLOB_STORE_ID (the SDK then signs in with the
+  // project's OIDC token); older setups and "read-write token" mode set BLOB_READ_WRITE_TOKEN.
+  if (process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN) return blobStore;
   if (process.env.NODE_ENV === "production") {
     throw new Error("Storage isn't connected. Add a Vercel Blob store to this project.");
   }
