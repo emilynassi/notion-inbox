@@ -146,6 +146,10 @@ def apply_edit(edit: dict, qid: str, state: dict) -> None:
         server.change_tags(real(edit["id"]), edit.get("add") or [], edit.get("remove") or [])
     elif kind == "todo":
         server.set_todo(real(edit["id"]), edit.get("i"), edit.get("text", ""), bool(edit.get("done")))
+    elif kind == "addTodo":
+        server.add_todo(real(edit["id"]), edit.get("text", ""))
+    elif kind == "removeTodo":
+        server.remove_todo(real(edit["id"]), edit.get("i"), edit.get("text", ""))
     elif kind == "note":
         server.move_note(real(edit["id"]), edit.get("action", ""))
     elif kind == "create":

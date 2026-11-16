@@ -147,9 +147,12 @@ def create_note(content: str, url: str = "") -> str:
     tags = [m.group(2) for m in CAPTURE_TAG_RE.finditer(first)]
     title = re.sub(r"\s+", " ", CAPTURE_TAG_RE.sub(r"\1", first)).strip() or "Untitled"
     text = "\n\n".join(p for p in (body.strip(), url) if p)
-    args = [BEARCLI, "create", title, "--content", bear_escape(text), "--format", "json", "--fields", "id"]
+    # Values are attached with "=" (and the title follows "--") so text starting with "-"
+    # is never mistaken for a bearcli option.
+    args = [BEARCLI, "create", f"--content={bear_escape(text)}", "--format", "json", "--fields", "id"]
     if tags:
-        args += ["--tags", ",".join(tags)]
+        args += [f"--tags={','.join(tags)}"]
+    args += ["--", title]
     out = subprocess.run(args, capture_output=True, text=True, timeout=15, check=True).stdout
     data = json.loads(out)
     return (data[0] if isinstance(data, list) else data)["id"]
@@ -171,12 +174,40 @@ def bear_escape(s: str) -> str:
     return s.replace("\\", "\\\\")
 
 
-def set_todo(note_id: str, index, text: str, done: bool) -> None:
-    """Check or uncheck the index-th checkbox line in a note."""
-    if not NOTE_ID_RE.match(note_id) or not isinstance(index, int) or index < 0:
+def _read(note_id: str) -> str:
+    if not NOTE_ID_RE.match(note_id):
+        raise ValueError("bad note id")
+    return subprocess.run([BEARCLI, "cat", note_id], capture_output=True, text=True, timeout=15, check=True).stdout
+
+
+def _replace_line(note_id: str, content: str, li: int, new_text: str | None) -> None:
+    """Replace line `li` with `new_text` (which may span lines), or delete it when None.
+
+    The find text grows with neighbouring lines until it's unique in the note, so
+    duplicate lines elsewhere are never touched.
+    """
+    lines = content.split("\n")
+    last = len(lines) - 1
+    start = end = li
+
+    def span(replacement: str | None = "\0keep") -> str:
+        middle = [lines[li]] if replacement == "\0keep" else ([] if replacement is None else [replacement])
+        mid = lines[start:li] + middle + lines[li + 1:end + 1]
+        text = "\n".join(mid)
+        return text + ("\n" if end < last and mid else "")  # trailing \n pins whole lines
+
+    while content.count(span()) > 1 and (start > 0 or end < last):
+        start, end = max(start - 1, 0), min(end + 1, last)
+    replacement = span(new_text)
+    action = [f"--replace={bear_escape(replacement)}"] if replacement else ["--delete"]
+    subprocess.run([BEARCLI, "edit", note_id, "--no-update-modified", f"--find={bear_escape(span())}", *action],  # "=" form: text may start with "-"
+                   capture_output=True, text=True, timeout=15, check=True)
+
+
+def _locate_todo(content: str, index, text: str) -> tuple[int, re.Match]:
+    """Line number of the index-th checkbox line, checked against the text the board saw."""
+    if not isinstance(index, int) or index < 0:
         raise ValueError("bad todo reference")
-    content = subprocess.run([BEARCLI, "cat", note_id], capture_output=True, text=True,
-                             timeout=15, check=True).stdout
     lines = content.split("\n")
     todo_lines = [i for i, line in enumerate(lines) if TODO_RE.match(line)]
     if index >= len(todo_lines):
@@ -185,26 +216,49 @@ def set_todo(note_id: str, index, text: str, done: bool) -> None:
     m = TODO_RE.match(lines[li])
     if m.group(2).strip() != str(text).strip():
         raise Conflict("The note changed in Bear. Reload and try again.")
+    return li, m
+
+
+def set_todo(note_id: str, index, text: str, done: bool) -> None:
+    """Check or uncheck the index-th checkbox line in a note."""
+    content = _read(note_id)
+    li, m = _locate_todo(content, index, text)
     if (m.group(1) != " ") == done:
         return  # already in the requested state
+    line = content.split("\n")[li]
+    _replace_line(note_id, content, li, line[: m.start(1) - 1] + ("[x]" if done else "[ ]") + line[m.end(1) + 1:])
 
-    box = "[x]" if done else "[ ]"
-    new_line = lines[li][: m.start(1) - 1] + box + lines[li][m.end(1) + 1:]
-    # Grow the find text with neighbouring lines until it's unique in the note.
-    last = len(lines) - 1
-    start = end = li
 
-    def span(new: str | None = None) -> str:
-        mid = lines[start:li] + [new if new is not None else lines[li]] + lines[li + 1:end + 1]
-        return "\n".join(mid) + ("\n" if end < last else "")  # trailing \n pins whole lines
+def clean_todo_text(text) -> str:
+    text = re.sub(r"\s+", " ", str(text)).strip()
+    if not text:
+        raise ValueError("Can't add an empty todo.")
+    if len(text) > 1_000:
+        raise ValueError("That todo is too long.")
+    return text
 
-    while content.count(span()) > 1 and (start > 0 or end < last):
-        start, end = max(start - 1, 0), min(end + 1, last)
-    subprocess.run(
-        [BEARCLI, "edit", note_id, "--no-update-modified",
-         "--find", bear_escape(span()), "--replace", bear_escape(span(new_line))],
-        capture_output=True, text=True, timeout=15, check=True,
-    )
+
+def add_todo(note_id: str, text: str) -> int:
+    """Add an open checkbox right after the note's last one (or at the end). Returns its index."""
+    text = clean_todo_text(text)
+    content = _read(note_id)
+    lines = content.split("\n")
+    todo_lines = [i for i, line in enumerate(lines) if TODO_RE.match(line)]
+    if not todo_lines:
+        subprocess.run([BEARCLI, "append", note_id, "--no-update-modified", f"--content={bear_escape(f'- [ ] {text}')}"],
+                       capture_output=True, text=True, timeout=15, check=True)
+        return 0
+    li = todo_lines[-1]
+    prefix = re.match(r"^(\s*[-*]\s+)\[", lines[li]).group(1)  # same indent and bullet as the list
+    _replace_line(note_id, content, li, f"{lines[li]}\n{prefix}[ ] {text}")
+    return len(todo_lines)
+
+
+def remove_todo(note_id: str, index, text: str) -> None:
+    """Delete the index-th checkbox line (used to undo add_todo)."""
+    content = _read(note_id)
+    li, _ = _locate_todo(content, index, text)
+    _replace_line(note_id, content, li, None)
 
 
 _previews: dict[str, dict] = {}
@@ -320,11 +374,17 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.headers.get("X-Bear-Board") != "1":
             return self._send(403, b"forbidden", "text/plain")
-        if self.path not in ("/api/tags", "/api/todo", "/api/note", "/api/create"):
+        if self.path not in ("/api/tags", "/api/todo", "/api/note", "/api/create", "/api/todo/add", "/api/todo/remove"):
             return self._send(404, b"not found", "text/plain")
         try:
             length = int(self.headers.get("Content-Length", "0"))
             req = json.loads(self.rfile.read(min(length, 200_000)) or "{}")
+            if self.path == "/api/todo/add":
+                i = add_todo(req.get("id", ""), req.get("text", ""))
+                return self._send(200, json.dumps({"ok": True, "i": i}).encode(), "application/json")
+            if self.path == "/api/todo/remove":
+                remove_todo(req.get("id", ""), req.get("i"), req.get("text", ""))
+                return self._send(200, b'{"ok":true}', "application/json")
             if self.path == "/api/create":
                 note_id = create_note(req.get("content", ""), req.get("url", ""))
                 return self._send(200, json.dumps({"ok": True, "id": note_id}).encode(), "application/json")
