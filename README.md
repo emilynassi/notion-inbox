@@ -99,7 +99,7 @@ Mac with Bear (every 10 min while awake)          Vercel                       A
 
 **Set up (once):**
 
-1. In Vercel, open the capture project → **Storage** → create a **Blob** store and connect it to the project. This adds `BLOB_READ_WRITE_TOKEN`.
+1. In Vercel, open the capture project → **Storage** → **Create Database** (sometimes "Create Storage") → **Blob** → **Private** access. A store created from inside the project is connected to it automatically. Or, from `capture/` with the Vercel CLI: `vercel blob create-store bear-board --access private --yes`. Either way, redeploy afterwards so the site picks up the connection.
 2. On the Mac with Bear:
    ```bash
    bear_board/sync_setup.sh
