@@ -24,7 +24,10 @@ const blobStore: Store = {
     try {
       const res = await get(key, { access: "private", useCache: false });
       if (!res || res.statusCode !== 200) return null;
-      return { body: await new Response(res.stream).text(), etag: res.blob.etag };
+      // Once a file passes ~1 KB the CDN compresses it and reports a weak ETag (W/"…").
+      // Same content hash, but put's ifMatch never accepts the weak form, so every
+      // conditional write would look like a conflict. Use the strong form.
+      return { body: await new Response(res.stream).text(), etag: res.blob.etag.replace(/^W\//, "") };
     } catch (e) {
       if (e instanceof BlobNotFoundError) return null;
       throw e;
