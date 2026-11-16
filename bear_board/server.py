@@ -41,12 +41,21 @@ IMAGE_RE =re.compile(r"!\[[^\]]*\]\([^)]*\)")
 TAG_LINE_RE =re.compile(r"^(\s*#[^\s#][^#]*?#?\s*)+$")
 
 
+HIDDEN_TAG = "hidden"
+
+
+def is_hidden(tags: list[str]) -> bool:
+    """Notes tagged #hidden (or #hidden/anything) stay off the board, and are never uploaded."""
+    return any(t.lower() == HIDDEN_TAG or t.lower().startswith(HIDDEN_TAG + "/") for t in tags)
+
+
 def load_notes() -> list[dict]:
     out = subprocess.run(
         [BEARCLI, "list", "--format", "json", "--fields", "all,content"],
         capture_output=True, text=True, timeout=30, check=True,
     ).stdout
-    return [shape(n) for n in json.loads(out or "[]")]
+    notes = (shape(n) for n in json.loads(out or "[]"))
+    return [n for n in notes if not is_hidden(n["tags"])]
 
 
 def shape(note: dict) -> dict:

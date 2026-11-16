@@ -171,7 +171,9 @@
         });
       }
     }
-    const list = [...notes.values()];
+    // A queued #hidden tag hides the note right away, before the Mac syncs (the Mac never uploads hidden notes).
+    const hidden = (tags) => tags.some((t) => t.toLowerCase() === "hidden" || t.toLowerCase().startsWith("hidden/"));
+    const list = [...notes.values()].filter((n) => !hidden(n.tags));
     const newFirst = (a, b) => (b.pinned - a.pinned) || String(b.modified).localeCompare(String(a.modified));
     return list.sort(newFirst);
   }

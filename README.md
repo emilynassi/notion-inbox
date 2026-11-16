@@ -32,6 +32,7 @@ A local web app that shows your Bear notes as a card board. It runs only on your
 - Check off todos right on the cards
 - Archive a note, or move it to Bear's trash. Never a permanent delete.
 - Undo on every change
+- **`#hidden` keeps a note off the board.** Tag a note `#hidden` (or `#hidden/anything`) in Bear, or add the tag from the board with "+ New tag". Hidden notes are filtered out on the Mac, so they're never uploaded to the hosted board either. Writing `#hidden` anywhere in a note's text counts, because Bear treats it as a tag.
 
 **Set up (on the Mac that has Bear):**
 
