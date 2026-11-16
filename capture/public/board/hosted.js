@@ -220,18 +220,51 @@
   }
 
   // ---- writing: encrypt and queue ----
-  async function enqueue(type, body) {
-    const edit = { type, ...body };
-    const res = await realFetch("/api/board/queue", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Bear-Board": "1" },
-      body: JSON.stringify({ envelope: await seal(encKey, "edit", edit) }),
+  // Changes made in quick succession (say, deleting several notes) are gathered for a
+  // moment and sent as one batch, one batch at a time. Fewer writes to the shared queue
+  // means no collisions with ourselves, and less of the storage quota.
+  const BATCH_WAIT_MS = 300;
+  let waiting = [];       // [{ edit, resolve }]
+  let batchTimer = null;
+  let sending = Promise.resolve();
+
+  function enqueue(type, body) {
+    return new Promise((resolve) => {
+      waiting.push({ edit: { type, ...body }, resolve });
+      clearTimeout(batchTimer);
+      batchTimer = setTimeout(() => {
+        const batch = waiting.splice(0);
+        sending = sending.then(() => sendBatch(batch));
+      }, BATCH_WAIT_MS);
     });
-    const data = await res.json().catch(() => ({}));
-    if (res.status === 401) { await clearKey(); location.reload(); }
-    if (!res.ok) return jsonResponse({ error: data.error || "Couldn't save the change." }, res.status);
-    cache?.pending.push({ qid: data.id, at: new Date().toISOString(), edit });
-    return jsonResponse({ ok: true, id: type === "create" ? `pending-${data.id}` : undefined });
+  }
+
+  async function sendBatch(batch) {
+    const envelopes = await Promise.all(batch.map((b) => seal(encKey, "edit", b.edit)));
+    let lastError = "Couldn't save the change.", lastStatus = 503;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const res = await realFetch("/api/board/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Bear-Board": "1" },
+        body: JSON.stringify({ envelopes }),
+      }).catch(() => null);
+      const data = res ? await res.json().catch(() => ({})) : {};
+      if (res?.status === 401) { await clearKey(); location.reload(); return; }
+      if (res?.ok) {
+        const at = new Date().toISOString();
+        batch.forEach(({ edit, resolve }, n) => {
+          const qid = data.ids[n];
+          cache?.pending.push({ qid, at, edit });
+          resolve(jsonResponse({ ok: true, id: edit.type === "create" ? `pending-${qid}` : undefined }));
+        });
+        return;
+      }
+      lastError = data.error || lastError;
+      lastStatus = res?.status || 503;
+      if (res && res.status !== 503) break; // only "busy" and network errors are worth retrying
+      await new Promise((r) => setTimeout(r, 400 * 2 ** attempt + Math.random() * 300));
+    }
+    batch.forEach(({ resolve }) => resolve(jsonResponse({ error: lastError }, lastStatus)));
   }
 
   const jsonResponse = (body, status = 200) =>

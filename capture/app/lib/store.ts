@@ -24,7 +24,10 @@ const blobStore: Store = {
     try {
       const res = await get(key, { access: "private", useCache: false });
       if (!res || res.statusCode !== 200) return null;
-      return { body: await new Response(res.stream).text(), etag: res.blob.etag };
+      // Once a file passes ~1 KB the CDN compresses it and reports a weak ETag (W/"…").
+      // Same content hash, but put's ifMatch never accepts the weak form, so every
+      // conditional write would look like a conflict. Use the strong form.
+      return { body: await new Response(res.stream).text(), etag: res.blob.etag.replace(/^W\//, "") };
     } catch (e) {
       if (e instanceof BlobNotFoundError) return null;
       throw e;
@@ -88,7 +91,7 @@ export async function readJSON<T>(key: string): Promise<{ value: T; etag: string
 
 /** Read-modify-write with optimistic concurrency, retried on conflict. */
 export async function updateJSON<T>(key: string, fallback: T, change: (current: T) => T): Promise<T> {
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 8; attempt++) {
     const current = await readJSON<T>(key);
     const next = change(current ? current.value : structuredClone(fallback));
     try {
@@ -96,7 +99,8 @@ export async function updateJSON<T>(key: string, fallback: T, change: (current: 
       return next;
     } catch (e) {
       if (!(e instanceof StoreConflict)) throw e;
-      await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
+      // Jittered backoff so competing writers stop colliding on the same beat.
+      await new Promise((r) => setTimeout(r, 75 + Math.random() * 150 * (attempt + 1)));
     }
   }
   throw new Error("The board is busy. Try again in a moment.");
