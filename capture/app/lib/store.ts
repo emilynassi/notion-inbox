@@ -88,7 +88,7 @@ export async function readJSON<T>(key: string): Promise<{ value: T; etag: string
 
 /** Read-modify-write with optimistic concurrency, retried on conflict. */
 export async function updateJSON<T>(key: string, fallback: T, change: (current: T) => T): Promise<T> {
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 8; attempt++) {
     const current = await readJSON<T>(key);
     const next = change(current ? current.value : structuredClone(fallback));
     try {
@@ -96,7 +96,8 @@ export async function updateJSON<T>(key: string, fallback: T, change: (current: 
       return next;
     } catch (e) {
       if (!(e instanceof StoreConflict)) throw e;
-      await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
+      // Jittered backoff so competing writers stop colliding on the same beat.
+      await new Promise((r) => setTimeout(r, 75 + Math.random() * 150 * (attempt + 1)));
     }
   }
   throw new Error("The board is busy. Try again in a moment.");

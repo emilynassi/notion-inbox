@@ -592,20 +592,25 @@ async function moveNote(id, action) {
     body: JSON.stringify({ id, action: a }),
   }).then(async (res) => { if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText); });
 
+  // Remove/restore this note by identity, not by position: other quick deletes may
+  // have shifted the list while the card was fading out.
+  const putBack = () => {
+    if (!state.notes.includes(note)) state.notes.splice(Math.min(idx, state.notes.length), 0, note);
+  };
   document.querySelector(`.card[data-id="${CSS.escape(id)}"]`)?.classList.add("leaving");
   await new Promise((r) => setTimeout(r, 180));
-  state.notes.splice(idx, 1);  // optimistic
+  state.notes = state.notes.filter((n) => n !== note);  // optimistic
   renderChips(); render();
   try {
     await post(action);
   } catch (e) {
-    state.notes.splice(idx, 0, note); renderChips(); render();
+    putBack(); renderChips(); render();
     return toast(`Couldn't update Bear: ${e.message}`);
   }
   toast(`${action === "trash" ? "Moved to trash" : "Archived"} · ${note.title}`, async () => {
     try {
       await post("restore");
-      state.notes.splice(Math.min(idx, state.notes.length), 0, note); renderChips(); render();
+      putBack(); renderChips(); render();
       toast(`Restored · ${note.title}`);
     } catch (e) { toast(`Couldn't restore: ${e.message}`); }
   });
