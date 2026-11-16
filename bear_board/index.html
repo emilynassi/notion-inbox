@@ -43,6 +43,8 @@
   .bar { display: flex; align-items: center; justify-content: space-between;
     padding: 18px 32px; border-bottom: 1px solid var(--border); }
   h1 { margin: 0; font: 700 30px/1 "Times New Roman", Georgia, serif; letter-spacing: -1.2px; }
+  .bar-actions { display: flex; gap: 10px; }
+  .bar-actions form { margin: 0; }
   .icon-btn { width: 42px; height: 42px; display: grid; place-items: center; padding: 0; border-radius: 50%; }
   .tools { padding: 24px 32px 0; position: sticky; top: 0; z-index: 2; background: var(--bg); padding-bottom: 16px; }
   .search-row { display: flex; gap: 12px; }
@@ -181,7 +183,14 @@
 <body>
 <div class="bar">
   <h1>Bear Board</h1>
-  <button class="icon-btn" id="theme" title="Theme"></button>
+  <div class="bar-actions">
+    <button class="icon-btn" id="theme" title="Theme"></button>
+    <form method="post" action="/logout">
+      <button class="icon-btn" title="Sign out" aria-label="Sign out">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3"/></svg>
+      </button>
+    </form>
+  </div>
 </div>
 <div class="tools">
   <div class="search-row">
@@ -219,6 +228,14 @@
 </dialog>
 <div class="toast" id="toast" role="status"><span id="toastText"></span><button id="toastUndo">Undo</button></div>
 <script>
+// If the session expires, any API call comes back 401: go sign in again.
+const _fetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const res = await _fetch(...args);
+  if (res.status === 401) window.location.href = "/login";
+  return res;
+};
+
 const state = { notes: [], q: "", root: null, tag: null, todoView: false };
 const previews = new Map();
 const $ = (id) => document.getElementById(id);

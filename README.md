@@ -33,15 +33,52 @@ A local web app that shows your Bear notes as a card board. It runs only on your
 - Archive a note, or move it to Bear's trash. Never a permanent delete.
 - Undo on every change
 
-**Run:**
+**Set up (on the Mac that has Bear):**
 
 ```bash
-python3 bear_board/server.py      # http://127.0.0.1:8787
+git clone git@github.com:emilynassi/notion-inbox.git && cd notion-inbox
+bear_board/install.sh
 ```
 
-There are no dependencies to install. It needs Bear 2 with `bearcli` at `/Applications/Bear.app/Contents/MacOS/bearcli`; override that path with `BEARCLI=…` and the port with `BEAR_BOARD_PORT=…`.
+The script:
 
-**Security:** the server listens on 127.0.0.1 only. Requests that change notes need an `X-Bear-Board` header and a matching `Host`, so other websites can't send changes. Checking a todo or changing tags doesn't change a note's modified date.
+1. checks for Bear 2 and Python 3.9+
+2. has you choose a board password
+3. starts the board at login (pass `--no-autostart` to skip)
+4. shares the board over Tailscale, if Tailscale is installed and signed in
+
+`--dry-run` shows what it would do without changing anything, and `--uninstall` stops the board and removes the login item.
+
+There are no packages to install.
+
+**Using it from other computers (Windows, Linux, a work laptop…):** the board reads Bear on your Mac, so it has to run there. To reach it from anywhere else:
+
+1. Install [Tailscale](https://tailscale.com/download) on the Mac and on the other computer, and sign in to the same account on both.
+2. Re-run `bear_board/install.sh` on the Mac. It prints the board's address, like `https://your-mac.tailnet-name.ts.net`.
+3. Open that address on the other computer and sign in with the board password.
+
+The Mac has to be awake. Only devices on your Tailscale account can reach the address. Clicking a card opens the note in Bear, so that part works only where Bear is installed.
+
+**Run by hand:**
+
+```bash
+python3 bear_board/server.py --set-password   # once
+python3 bear_board/server.py                  # http://127.0.0.1:8787
+```
+
+Settings (environment variables):
+- `BEARCLI`: path to `bearcli`. Default `/Applications/Bear.app/Contents/MacOS/bearcli`.
+- `BEAR_BOARD_PORT`: default `8787`.
+- `BEAR_BOARD_HOSTS`: extra hostnames the board answers to, such as the Mac's Tailscale name.
+- `BEAR_BOARD_CONFIG_DIR`: where the login config lives. Default `~/.config/bear-board`.
+
+**Security:**
+- **Password login on every page and request.** Only a salted scrypt hash of the password is stored, in `~/.config/bear-board/config.json` (readable only by you).
+- **Sessions** last 30 days in a signed, HttpOnly, SameSite=Strict cookie (also Secure over Tailscale). Setting a new password signs out every device.
+- **Wrong passwords are slowed down:** each failure takes a second, and after 10 failures in 10 minutes all logins pause until that window passes.
+- **The server listens on 127.0.0.1 only.** Every request must name an allowed `Host`, which blocks DNS rebinding.
+- **Changes need an `X-Bear-Board` header,** so other websites can't send them.
+- **Checking a todo or changing tags doesn't change a note's modified date.**
 
 ---
 
