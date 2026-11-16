@@ -49,15 +49,31 @@ def _file_item(classification: dict, url: str | None) -> str:
             venue=classification.get("venue", ""),
             location=classification.get("location", ""),
             notes=classification.get("notes", ""),
+            status=classification.get("status", "Upcoming"),
+            date=classification.get("date", ""),
         )
         return f"Concert Tracker → {name}"
 
-    elif category in ("article", "video", "podcast", "website"):
+    elif category == "game":
+        nc.create_game(
+            team_event=name,
+            opponent=classification.get("opponent", ""),
+            venue=classification.get("venue", ""),
+            location=classification.get("location", ""),
+            sport=classification.get("sport", ""),
+            notes=classification.get("notes", ""),
+            status=classification.get("status", "Upcoming"),
+            date=classification.get("date", ""),
+        )
+        return f"Games Tracker → {name}"
+
+    elif category in ("article", "video", "podcast", "website", "social"):
         type_map = {
             "article": "Article",
             "video": "Video",
             "podcast": "Podcast",
             "website": "Website",
+            "social": "Social media",
         }
         nc.create_resource(
             name=name,

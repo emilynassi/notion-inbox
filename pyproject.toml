@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "notion-inbox"
@@ -15,6 +15,9 @@ dependencies = [
 
 [project.scripts]
 notion-triage = "notion_inbox.cli:main"
+notion-games-import = "notion_inbox.games_import:main"
+notion-games-enrich = "notion_inbox.games_enrich:main"
+notion-eval-triage = "notion_inbox.eval_triage:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
