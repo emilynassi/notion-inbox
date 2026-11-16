@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bear Board</title>
+<script>
+  // Apply the saved theme before first paint so there's no flash.
+  try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
+</script>
+<style>
+  :root {
+    --bg: #ffffff; --surface: #f6f6f4; --surface-2: #ececea; --border: #e2e1dd;
+    --text: #121211; --muted: #8b8a85; --pin: #c2570c;
+    --tag-text-l: 52%; --tag-bg-l: 94%; --tag-bg-c: 0.045; --tag-border-l: 78%;
+    --shadow: 0 1px 2px rgb(0 0 0 / .04);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #000000; --surface: #141414; --surface-2: #1e1e1e; --border: #2a2a2a;
+      --text: #f2f2f0; --muted: #85847f; --pin: #fb923c;
+      --tag-text-l: 78%; --tag-bg-l: 28%; --tag-bg-c: 0.05; --tag-border-l: 68%;
+      --shadow: none;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #000000; --surface: #141414; --surface-2: #1e1e1e; --border: #2a2a2a;
+    --text: #f2f2f0; --muted: #85847f; --pin: #fb923c;
+    --tag-text-l: 78%; --tag-bg-l: 28%; --tag-bg-c: 0.05; --tag-border-l: 68%;
+    --shadow: none;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    -webkit-font-smoothing: antialiased; }
+  svg { flex: none; }
+
+  /* Header */
+  .bar { display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 32px; border-bottom: 1px solid var(--border); }
+  h1 { margin: 0; font: 700 30px/1 "Times New Roman", Georgia, serif; letter-spacing: -1.2px; }
+  .icon-btn { width: 42px; height: 42px; display: grid; place-items: center; padding: 0; border-radius: 50%; }
+  .tools { padding: 24px 32px 0; position: sticky; top: 0; z-index: 2; background: var(--bg); padding-bottom: 16px; }
+  .search-row { display: flex; gap: 12px; }
+  .search { flex: 1; display: flex; align-items: center; gap: 12px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 12px; padding: 0 18px; height: 54px; }
+  .search input { flex: 1; border: 0; outline: 0; background: transparent; color: var(--text);
+    font: inherit; font-size: 16px; }
+  .search input::placeholder { color: var(--muted); }
+  .search kbd { color: var(--muted); font: inherit; font-size: 12px; border: 1px solid var(--border);
+    border-radius: 5px; padding: 0 6px; }
+  button { font: inherit; font-weight: 600; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 999px; padding: 7px 16px; cursor: pointer;
+    white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; }
+  button:hover { border-color: var(--muted); }
+  button.on { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .refresh { width: 54px; height: 54px; justify-content: center; border-radius: 12px; padding: 0; }
+  .chips { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+  .chips.sub { margin-top: 10px; }
+  .chips.sub button { font-size: 13px; padding: 4px 12px; }
+  .chip { text-transform: uppercase; }
+  .chip.on { background: oklch(var(--tag-text-l) 0.14 var(--h)); border-color: transparent; color: var(--bg); }
+  .count { font-weight: 400; opacity: .55; font-size: 11px; }
+
+  /* Board */
+  main { padding: 8px 32px 64px; }
+  .status { color: var(--muted); margin: 0 0 16px; font-size: 13px; }
+  .board { display: flex; gap: 20px; align-items: flex-start; }
+  .col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+  .card { --h: 0; background: var(--surface);
+    border: 1.5px solid var(--border); border-radius: 16px; padding: 20px 22px; display: block;
+    color: inherit; text-decoration: none; box-shadow: var(--shadow);
+    transition: transform .12s, border-color .12s; }
+  .card.tagged { border-color: oklch(var(--tag-border-l) 0.14 var(--h)); }
+  .card:hover { transform: translateY(-2px); }
+  .card:not(.tagged):hover { border-color: var(--muted); }
+  .pinned { display: flex; align-items: center; gap: 8px; color: var(--pin); font-weight: 700;
+    font-size: 13px; letter-spacing: 2px; margin-bottom: 10px; }
+  .meta { display: flex; justify-content: space-between; color: var(--muted); font-size: 14px; letter-spacing: .3px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .tag { --h: 0; font-size: 13px; text-transform: uppercase; padding: 3px 9px; border-radius: 6px;
+    color: oklch(var(--tag-text-l) 0.14 var(--h));
+    background: oklch(var(--tag-bg-l) var(--tag-bg-c) var(--h)); }
+  .card h2 { margin: 14px 0 0; font-size: 19px; font-weight: 700; line-height: 1.55; letter-spacing: .2px;
+    overflow-wrap: anywhere; }
+  .snippet { margin: 8px 0 0; color: var(--muted); font-size: 14px; white-space: pre-line;
+    display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+  .todos { list-style: none; margin: 12px 0 0; padding: 0; font-size: 14px; }
+  .todos li { display: flex; gap: 10px; padding: 3px 0; transition: opacity .2s; }
+  .todos li.checked { opacity: .5; }
+  .todos li.checked .ttext { text-decoration: line-through; }
+  .check { flex: none; width: 16px; height: 16px; margin-top: 3px; padding: 0; border-radius: 4px;
+    border: 1.5px solid var(--muted); background: transparent; display: grid; place-items: center;
+    cursor: pointer; color: var(--bg); }
+  .check:hover { border-color: oklch(var(--tag-text-l) 0.14 var(--h)); background: oklch(var(--tag-bg-l) var(--tag-bg-c) var(--h)); }
+  .card:not(.tagged) .check:hover { border-color: var(--text); background: var(--surface-2); }
+  li.checked .check { background: oklch(var(--tag-text-l) 0.14 var(--h)); border-color: transparent; }
+  .card:not(.tagged) li.checked .check { background: var(--muted); }
+  .more { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .progress { margin-top: 14px; height: 4px; background: var(--surface-2); border-radius: 2px; overflow: hidden; }
+  .progress span { display: block; height: 100%; background: oklch(var(--tag-text-l) 0.14 var(--h)); }
+  .card:not(.tagged) .progress span { background: var(--muted); }
+
+  /* Link preview */
+  .preview { display: block; margin-top: 16px; border: 1px solid var(--border); border-radius: 12px;
+    overflow: hidden; background: var(--bg); cursor: pointer; }
+  .preview img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: var(--surface-2); }
+  .preview .body { padding: 12px 16px 14px; }
+  .preview .ptitle { font-weight: 700; font-size: 15px; overflow: hidden; text-overflow: ellipsis;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .preview .host { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .preview .host span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .preview:hover { border-color: var(--muted); }
+
+  /* Drag to retag */
+  .card { cursor: grab; }
+  .card.dragging { opacity: .35; transform: none; }
+  body.dragging .card:hover { transform: none; }
+  body.dragging .chips .chip, body.dragging .newtag { border-style: dashed; border-color: var(--muted); }
+  .chips .drop { transform: scale(1.08); border-style: solid !important;
+    border-color: oklch(var(--tag-text-l) 0.14 var(--h, 0)) !important;
+    background: oklch(var(--tag-bg-l) var(--tag-bg-c) var(--h, 0)); }
+  .newtag { display: none; }
+  body.dragging .newtag { display: inline-flex; }
+  .hint { display: none; color: var(--muted); font-size: 13px; align-self: center; }
+  body.dragging .hint { display: inline; }
+  .tag { display: inline-flex; align-items: center; gap: 4px; }
+  .tag .x { display: none; width: 16px; height: 16px; place-items: center; border-radius: 4px;
+    margin-right: -4px; font-size: 14px; line-height: 1; cursor: pointer; }
+  .tag:hover .x { display: grid; }
+  .tag .x:hover { background: oklch(var(--tag-text-l) 0.14 var(--h) / .2); }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0;
+    pointer-events: none; transition: opacity .15s, transform .15s; z-index: 10;
+    display: flex; gap: 16px; align-items: center; max-width: calc(100vw - 32px);
+    background: var(--text); color: var(--bg); padding: 12px 18px; border-radius: 12px; font-size: 14px; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+  .toast span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toast button { background: transparent; color: inherit; border-color: currentColor; padding: 3px 12px; }
+
+  .empty { flex: 1; color: var(--muted); text-align: center; padding: 60px 0; }
+  @media (max-width: 640px) {
+    .bar, .tools, main { padding-left: 16px; padding-right: 16px; }
+    h1 { font-size: 24px; }
+    .search kbd { display: none; }
+    .card { padding: 16px 18px; }
+  }
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>Bear Board</h1>
+  <button class="icon-btn" id="theme" title="Theme"></button>
+</div>
+<div class="tools">
+  <div class="search-row">
+    <label class="search">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Search your notes" autocomplete="off">
+      <kbd>/</kbd>
+    </label>
+    <button class="refresh" id="refresh" title="Reload from Bear" aria-label="Reload from Bear">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/></svg>
+    </button>
+  </div>
+  <div class="chips" id="chips"></div>
+  <div class="chips sub" id="subchips"></div>
+</div>
+<main>
+  <p class="status" id="status">Loading notes from Bear…</p>
+  <div class="board" id="board"></div>
+</main>
+<div class="toast" id="toast" role="status"><span id="toastText"></span><button id="toastUndo">Undo</button></div>
+<script>
+const state = { notes: [], q: "", root: null, tag: null, todoView: false };
+const previews = new Map();
+const $ = (id) => document.getElementById(id);
+
+const ICONS = {
+  system: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3v18" /><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg>',
+  light: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  dark: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>',
+  pin: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 3h6M10 3v6l-3 4h10l-3-4V3M12 13v8"/></svg>',
+  out: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
+  todo: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="6" height="6" rx="1"/><path d="M13 7h8M13 17h8"/><path d="m3 17 2 2 4-4"/></svg>',
+};
+
+const CHECK = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>';
+
+// Theme: system → light → dark
+function applyTheme(t) {
+  if (t === "system") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = t;
+  try { t === "system" ? localStorage.removeItem("theme") : localStorage.setItem("theme", t); } catch {}
+  $("theme").innerHTML = ICONS[t];
+  $("theme").title = `Theme: ${t}`;
+  $("theme").setAttribute("aria-label", `Theme: ${t}`);
+}
+$("theme").onclick = () => {
+  const cur = document.documentElement.dataset.theme || "system";
+  applyTheme({ system: "light", light: "dark", dark: "system" }[cur]);
+};
+applyTheme(document.documentElement.dataset.theme || "system");
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// A small set of pleasant hues; each root tag hashes to one so colors stay stable.
+const HUES = [55, 145, 250, 15, 300, 190, 85, 330, 220];
+const hue = (tag) => { let h = 0; for (const c of tag.split("/")[0]) h = (h * 31 + c.charCodeAt(0)) >>> 0; return HUES[h % HUES.length]; };
+const openUrl = (id) => `bear://x-callback-url/open-note?id=${encodeURIComponent(id)}`;
+const fmtDate = (iso) => {
+  const d = new Date(iso);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) })
+    + " · " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+};
+const hostOf = (u) => { try { const x = new URL(u); return x.hostname.replace(/^www\./, "") + x.pathname.replace(/\/$/, ""); } catch { return u; } };
+
+async function load() {
+  try {
+    const res = await fetch("/api/notes");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    state.notes = data;
+    renderChips();
+    render();
+  } catch (e) {
+    $("status").textContent = "Couldn't read Bear: " + e.message;
+  }
+}
+
+function tagCounts() {
+  const counts = new Map();
+  for (const n of state.notes) for (const t of new Set(n.tags.flatMap((t) => [t, t.split("/")[0]])))
+    counts.set(t, (counts.get(t) || 0) + 1);
+  return counts;
+}
+
+function chip(label, tag, on, onClick, counts) {
+  const b = document.createElement("button");
+  b.className = "chip" + (on ? " on" : "");
+  b.dataset.tag = tag;
+  b.style.setProperty("--h", hue(tag));
+  b.innerHTML = `#${esc(label)}<span class="count">${counts.get(tag) || 0}</span>`;
+  b.onclick = onClick;
+  return b;
+}
+
+function renderChips() {
+  const counts = tagCounts();
+  const todo = document.createElement("button");
+  todo.className = state.todoView ? "on" : "";
+  todo.innerHTML = `${ICONS.todo} Todos`;
+  todo.title = "Notes with open checkboxes";
+  todo.onclick = () => { state.todoView = !state.todoView; renderChips(); render(); };
+  const roots = [...counts.keys()].filter((t) => !t.includes("/")).sort((a, b) => counts.get(b) - counts.get(a));
+  const newTag = document.createElement("button");
+  newTag.className = "newtag";
+  newTag.dataset.newtag = "1";
+  newTag.textContent = "+ New tag";
+  const hint = Object.assign(document.createElement("span"), { className: "hint", textContent: "Drop on a tag to add it" });
+  $("chips").replaceChildren(todo, ...roots.map((r) => chip(r, r, state.root === r, () => {
+    state.root = state.root === r ? null : r; state.tag = state.root; renderChips(); render();
+  }, counts)), newTag, hint);
+  const subs = state.root ? [...counts.keys()].filter((t) => t.startsWith(state.root + "/")).sort() : [];
+  $("subchips").replaceChildren(...subs.map((s) => chip(s.slice(state.root.length + 1), s, state.tag === s, () => {
+    state.tag = state.tag === s ? state.root : s; renderChips(); render();
+  }, counts)));
+  $("subchips").hidden = !subs.length;
+}
+
+function matches(n) {
+  if (state.tag && !n.tags.some((t) => t === state.tag || t.startsWith(state.tag + "/"))) return false;
+  if (state.todoView && !n.openTodos.length) return false;
+  if (!state.q) return true;
+  const hay = (n.title + "\n" + n.text).toLowerCase();  // includes todo text
+  return state.q.toLowerCase().split(/\s+/).every((w) => hay.includes(w));
+}
+
+function previewHTML(url) {
+  const p = previews.get(url);
+  if (!p) return `<span class="preview" data-href="${esc(url)}" data-pending><div class="body"><div class="host"><span>${esc(hostOf(url))}</span>${ICONS.out}</div></div></span>`;
+  return `<span class="preview" data-href="${esc(url)}">
+    ${p.image ? `<img src="${esc(p.image)}" alt="" loading="lazy" draggable="false" onerror="this.remove()">` : ""}
+    <div class="body">
+      ${p.title ? `<div class="ptitle">${esc(p.title)}</div>` : ""}
+      <div class="host"><span>${esc(hostOf(url))}</span>${ICONS.out}</div>
+    </div></span>`;
+}
+
+function cardHTML(n) {
+  const first = n.tags[0];
+  const tags = n.tags.map((t) => `<span class="tag" style="--h:${hue(t)}">#${esc(t)}<span class="x" role="button" data-remove="${esc(t)}" title="Remove #${esc(t)}" aria-label="Remove #${esc(t)}">×</span></span>`).join("");
+  const todos = n.openTodos.slice(0, 5).map((t) =>
+    `<li class="${t.checked ? "checked" : ""}"><button class="check" data-i="${t.i}" aria-label="${t.checked ? "Uncheck" : "Check off"}: ${esc(t.text)}">${t.checked ? CHECK : ""}</button><span class="ttext">${esc(t.text)}</span></li>`).join("");
+  const total = n.todos + n.done;
+  return `<a class="card${first ? " tagged" : ""}" style="--h:${first ? hue(first) : 0}" href="${openUrl(n.id)}" draggable="true" data-id="${esc(n.id)}">
+    ${n.pinned ? `<div class="pinned">${ICONS.pin} PINNED</div>` : ""}
+    <div class="meta"><span>${fmtDate(n.modified)}</span><span>${n.locked ? "🔒" : ""}</span></div>
+    ${tags ? `<div class="tags">${tags}</div>` : ""}
+    <h2>${esc(n.title)}</h2>
+    ${n.snippet && !n.openTodos.length ? `<div class="snippet">${esc(n.snippet)}</div>` : ""}
+    ${todos ? `<ul class="todos">${todos}</ul>` : ""}
+    ${n.openTodos.length > 5 ? `<div class="more">+${n.openTodos.length - 5} more</div>` : ""}
+    ${total ? `<div class="progress" title="${n.done}/${total} done"><span style="width:${(100 * n.done) / total}%"></span></div>` : ""}
+    ${n.urls[0] ? previewHTML(n.urls[0]) : ""}
+  </a>`;
+}
+
+// Fetch link previews only for cards scrolled into view.
+const io = new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    io.unobserve(e.target);
+    const url = e.target.dataset.href;
+    fetch("/api/preview?url=" + encodeURIComponent(url)).then((r) => r.json()).then((p) => {
+      previews.set(url, p);
+      for (const el of document.querySelectorAll(".preview[data-pending]"))
+        if (el.dataset.href === url) el.outerHTML = previewHTML(url);
+    }).catch(() => {});
+  }
+}, { rootMargin: "400px" });
+
+function render() {
+  const list = state.notes.filter(matches);
+  const open = list.reduce((s, n) => s + n.openTodos.length, 0);
+  $("status").textContent = state.todoView
+    ? `${open} open todo${open === 1 ? "" : "s"} across ${list.length} note${list.length === 1 ? "" : "s"}`
+    : `${list.length} of ${state.notes.length} notes`;
+  state.list = list;
+  layout();
+}
+
+// Masonry: place cards in order, each into the currently shortest column,
+// so the newest notes run across the top row.
+function layout() {
+  const board = $("board");
+  const list = state.list || [];
+  if (!list.length) { board.innerHTML = `<div class="empty">Nothing matches.</div>`; return; }
+  const n = Math.max(1, Math.floor((board.clientWidth + 20) / 320));
+  const cols = Array.from({ length: n }, () => Object.assign(document.createElement("div"), { className: "col" }));
+  board.replaceChildren(...cols);
+  const tmp = document.createElement("template");
+  for (const note of list) {
+    tmp.innerHTML = cardHTML(note).trim();
+    cols.reduce((a, b) => (b.offsetHeight < a.offsetHeight ? b : a)).appendChild(tmp.content.firstChild);
+  }
+  board.querySelectorAll(".preview[data-pending]").forEach((el) => io.observe(el));
+  state.cols = n;
+}
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (Math.max(1, Math.floor(($("board").clientWidth + 20) / 320)) !== state.cols) layout();
+  }, 120);
+});
+
+// ---- Retagging ----
+let toastTimer;
+function toast(text, undo) {
+  $("toastText").textContent = text;
+  $("toastUndo").hidden = !undo;
+  $("toastUndo").onclick = () => { $("toast").classList.remove("show"); undo(); };
+  $("toast").classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $("toast").classList.remove("show"), 6000);
+}
+
+async function retag(id, { add = [], remove = [] }, undoable = true) {
+  const note = state.notes.find((n) => n.id === id);
+  if (!note) return;
+  const already = add.filter((t) => note.tags.includes(t));
+  add = add.filter((t) => !note.tags.includes(t));
+  remove = remove.filter((t) => note.tags.includes(t));
+  if (!add.length && !remove.length) {
+    if (already.length) toast(`${note.title} already has #${already[0]}`);
+    return;
+  }
+  const before = [...note.tags];
+  // Bear also lists parents of nested tags (adding travel/japan shows #travel too).
+  // Track the ones this add creates so Undo can remove them as well.
+  const parents = (t) => t.split("/").slice(0, -1).map((_, i, a) => a.slice(0, i + 1).join("/"));
+  const implied = [...new Set(add.flatMap(parents))].filter((p) => !before.includes(p));
+  note.tags = [...new Set([...note.tags.filter((t) => !remove.includes(t)), ...implied, ...add])];  // optimistic
+  renderChips(); render();
+  try {
+    const res = await fetch("/api/tags", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Bear-Board": "1" },
+      body: JSON.stringify({ id, add, remove }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+  } catch (e) {
+    note.tags = before; renderChips(); render();
+    return toast(`Couldn't update Bear: ${e.message}`);
+  }
+  const what = [...add.map((t) => `added #${t}`), ...remove.map((t) => `removed #${t}`)].join(", ");
+  toast(`${what[0].toUpperCase() + what.slice(1)} · ${note.title}`,
+    undoable ? () => retag(id, { add: remove, remove: [...add, ...implied] }, false) : null);
+  setTimeout(load, 600); // pick up the note text Bear rewrote
+}
+
+let reloadTimer;
+async function setTodo(id, i, done, undoable = true) {
+  const note = state.notes.find((n) => n.id === id);
+  const todo = note?.openTodos.find((t) => t.i === i);
+  if (!todo) return;
+  const flip = (d) => { todo.checked = d; note.done += d ? 1 : -1; note.todos += d ? -1 : 1; render(); };
+  flip(done);  // optimistic
+  try {
+    const res = await fetch("/api/todo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Bear-Board": "1" },
+      body: JSON.stringify({ id, i, text: todo.text, done }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+  } catch (e) {
+    flip(!done);
+    return toast(`Couldn't update Bear: ${e.message}`);
+  }
+  toast(`${done ? "Checked off" : "Unchecked"} · ${todo.text}`, undoable ? () => setTodo(id, i, !done, false) : null);
+  // Wait for a pause before reloading, so checked items stay visible while you work through a list.
+  clearTimeout(reloadTimer);
+  reloadTimer = setTimeout(load, 4000);
+}
+
+let dragId = null;
+$("board").addEventListener("dragstart", (e) => {
+  const card = e.target.closest(".card");
+  if (!card) return;
+  dragId = card.dataset.id;
+  e.dataTransfer.effectAllowed = "copy";
+  e.dataTransfer.setData("text/x-bear-note", dragId);
+  card.classList.add("dragging");
+  document.body.classList.add("dragging");
+});
+$("board").addEventListener("dragend", (e) => {
+  e.target.closest?.(".card")?.classList.remove("dragging");
+  document.body.classList.remove("dragging");
+  document.querySelectorAll(".drop").forEach((el) => el.classList.remove("drop"));
+  dragId = null;
+});
+const dropTarget = (e) => dragId && e.target.closest?.(".chips [data-tag], .chips [data-newtag]");
+document.querySelector(".tools").addEventListener("dragover", (e) => {
+  const t = dropTarget(e);
+  if (!t) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "copy";
+  document.querySelectorAll(".drop").forEach((el) => el !== t && el.classList.remove("drop"));
+  t.classList.add("drop");
+});
+document.querySelector(".tools").addEventListener("dragleave", (e) => {
+  const t = dropTarget(e);
+  if (t && !t.contains(e.relatedTarget)) t.classList.remove("drop");
+});
+document.querySelector(".tools").addEventListener("drop", (e) => {
+  const t = dropTarget(e);
+  if (!t) return;
+  e.preventDefault();
+  const id = dragId;
+  let tag = t.dataset.tag;
+  if (!tag) {
+    tag = (prompt("New tag (use / for nested, e.g. travel/japan):") || "").trim().replace(/^#+/, "");
+    if (!tag) return;
+  }
+  retag(id, { add: [tag] });
+});
+
+$("board").addEventListener("click", (e) => {
+  const check = e.target.closest(".check");
+  if (check) {
+    e.preventDefault();
+    const li = check.closest("li");
+    return setTodo(check.closest(".card").dataset.id, Number(check.dataset.i), !li.classList.contains("checked"));
+  }
+  const x = e.target.closest(".x");
+  if (x) {
+    e.preventDefault();
+    return retag(x.closest(".card").dataset.id, { remove: [x.dataset.remove] });
+  }
+  const link = e.target.closest(".preview");
+  if (link) { e.preventDefault(); window.open(link.dataset.href, "_blank", "noopener"); }
+});
+$("q").addEventListener("input", (e) => { state.q = e.target.value.trim(); render(); });
+$("refresh").onclick = load;
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && document.activeElement !== $("q")) { e.preventDefault(); $("q").focus(); }
+  if (e.key === "Escape") { $("q").value = ""; state.q = ""; $("q").blur(); render(); }
+});
+window.addEventListener("focus", load); // pick up edits made in Bear
+load();
+</script>
+</body>
+</html>
