@@ -29,7 +29,7 @@ A local web app that shows your Bear notes as a card board. It runs only on your
 - Light, dark, and system themes
 - **＋ New note** (or press `N`): first-line `#tags` become the note's tags
 - Drag a card onto a tag chip to add a tag, or click × on a tag to remove it
-- Check off todos right on the cards
+- Check off todos right on the cards, or add one with the **Add a todo…** field on any card that already has checkboxes. The new todo goes right after the note's last checkbox, matching its indentation.
 - Archive a note, or move it to Bear's trash. Never a permanent delete.
 - Undo on every change
 - **`#hidden` keeps a note off the board.** Tag a note `#hidden` (or `#hidden/anything`) in Bear, or add the tag from the board with "+ New tag". Hidden notes are filtered out on the Mac, so they're never uploaded to the hosted board either. Writing `#hidden` anywhere in a note's text counts, because Bear treats it as a tag.
@@ -126,6 +126,7 @@ As a result, edits made in Bear itself can take up to 30 minutes to show on the 
 A one-page Next.js app for saving a note from your phone. When you press save, it opens a `bear://x-callback-url/create` link, so **Bear on that device creates the note**. Bear then sends you back to the form with a confirmation. Nothing is sent to or stored on a server, so there are no secrets or env vars.
 
 - Tags on the first line become the note's tags: `pad thai #recipe` → a note called "pad thai" tagged `#recipe`.
+- **Add to an existing list:** tap **+ list** once and enter a note's exact name, like `Daily/Weekly Todo`. Then pick that list instead of "New note", and each line you type is added to the end of that note as a todo (`- [ ] …`). The list of notes is saved on that device only, so the public page never contains your note names. If you rename the note in Bear, update it here too.
 - Tags further down stay in the text, and Bear picks them up as usual.
 - Nested tags work, like `#travel/japan`.
 - If the hand-off to Bear doesn't happen, the draft is still there next time you open the page.

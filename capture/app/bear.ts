@@ -27,6 +27,31 @@ export function parseCapture(content: string, url = ""): Capture {
   return { title, text, tags, allTags: [...new Set([...tags, ...bodyTags])] };
 }
 
+/** Turns each non-empty line into an open checkbox ("- [ ] …"). A URL rides on the last item. */
+export function todoLines(content: string, url = ""): string[] {
+  const items = content
+    .split("\n")
+    .map((l) => l.replace(/^\s*(?:[-*+]\s+)?(?:\[[ xX]?\]\s*)?/, "").trim())
+    .filter(Boolean);
+  if (url.trim() && items.length) items[items.length - 1] += ` ${url.trim()}`;
+  return items.map((t) => `- [ ] ${t}`);
+}
+
+/** Adds checkboxes to the end of an existing Bear note, found by its title. */
+export function bearAddTodosUrl(noteTitle: string, content: string, url: string, returnTo?: string): string {
+  const params = new URLSearchParams({
+    title: noteTitle,
+    text: todoLines(content, url).join("\n"),
+    mode: "append",
+    new_line: "yes",
+    exclude_trashed: "yes",
+    open_note: "no",
+    show_window: "no",
+  });
+  if (returnTo) params.set("x-success", returnTo);
+  return "bear://x-callback-url/add-text?" + params.toString().replace(/\+/g, "%20");
+}
+
 export function bearCreateUrl(c: Capture, returnTo?: string): string {
   const params = new URLSearchParams({ title: c.title, open_note: "no", show_window: "no" });
   if (c.text) params.set("text", c.text);

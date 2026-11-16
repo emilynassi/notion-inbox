@@ -111,6 +111,13 @@
   li.checked .check { background: oklch(var(--tag-text-l) 0.14 var(--h)); border-color: transparent; }
   .card:not(.tagged) li.checked .check { background: var(--muted); }
   .more { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .add-todo { margin: 10px 0 0; }
+  .add-todo input { width: 100%; font: inherit; font-size: 14px; color: var(--text); background: transparent;
+    border: 0; border-bottom: 1px dashed var(--border); padding: 6px 0 6px 24px; outline: none; cursor: text;
+    background-image: linear-gradient(var(--muted), var(--muted)), linear-gradient(var(--muted), var(--muted));
+    background-size: 10px 1.5px, 1.5px 10px; background-position: 3px center, 7.25px center; background-repeat: no-repeat; }
+  .add-todo input:focus { border-bottom-color: var(--muted); }
+  .add-todo input::placeholder { color: var(--muted); }
   .progress { margin-top: 14px; height: 4px; background: var(--surface-2); border-radius: 2px; overflow: hidden; }
   .progress span { display: block; height: 100%; background: oklch(var(--tag-text-l) 0.14 var(--h)); }
   .card:not(.tagged) .progress span { background: var(--muted); }
@@ -400,6 +407,7 @@ function cardHTML(n) {
     ${todos ? `<ul class="todos">${todos}</ul>` : ""}
     ${n.openTodos.length > 5 ? `<div class="more">+${n.openTodos.length - 5} more</div>` : ""}
     ${total ? `<div class="progress" title="${n.done}/${total} done"><span style="width:${(100 * n.done) / total}%"></span></div>` : ""}
+    ${total ? `<form class="add-todo"><input name="todo" placeholder="Add a todo…" maxlength="1000" autocomplete="off" draggable="false" aria-label="Add a todo to ${esc(n.title)}"></form>` : ""}
     ${n.urls[0] ? previewHTML(n.urls[0]) : ""}
   </a>`;
 }
@@ -509,6 +517,47 @@ async function retag(id, { add = [], remove = [] }, undoable = true) {
   setTimeout(load, 600); // pick up the note text Bear rewrote
 }
 
+// ---- Add a todo to an existing note ----
+async function addTodo(id, text, focusAfter = true) {
+  const note = state.notes.find((n) => n.id === id);
+  text = text.replace(/\s+/g, " ").trim();
+  if (!note || !text) return;
+  const i = note.todos + note.done; // it goes after the note's last checkbox, so its index is the count
+  const todo = { i, text };
+  note.openTodos.push(todo); note.todos += 1;  // optimistic
+  render();
+  if (focusAfter) document.querySelector(`.card[data-id="${CSS.escape(id)}"] .add-todo input`)?.focus();
+  try {
+    const res = await fetch("/api/todo/add", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Bear-Board": "1" },
+      body: JSON.stringify({ id, text, i }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    if (Number.isInteger(data.i)) todo.i = data.i;
+  } catch (e) {
+    note.openTodos = note.openTodos.filter((t) => t !== todo); note.todos -= 1; render();
+    return toast(`Couldn't add it: ${e.message}`);
+  }
+  toast(`Added to ${note.title} · ${text}`, async () => {
+    const res = await fetch("/api/todo/remove", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Bear-Board": "1" },
+      body: JSON.stringify({ id, i: todo.i, text }),
+    }).catch(() => null);
+    if (!res?.ok) return toast("Couldn't undo. The note may have changed; reload and remove it there.");
+    note.openTodos = note.openTodos.filter((t) => t !== todo); note.todos -= 1; render();
+    toast(`Removed · ${text}`);
+  });
+}
+$("board").addEventListener("submit", (e) => {
+  const form = e.target.closest(".add-todo");
+  if (!form) return;
+  e.preventDefault();
+  addTodo(form.closest(".card").dataset.id, form.todo.value);
+});
+
 let reloadTimer;
 async function setTodo(id, i, done, undoable = true) {
   const note = state.notes.find((n) => n.id === id);
@@ -609,7 +658,8 @@ $("captureForm").addEventListener("submit", async (e) => {
 
 let dragId = null;
 $("board").addEventListener("dragstart", (e) => {
-  const card = e.target.closest(".card");
+  if (document.activeElement?.closest?.(".add-todo")) return e.preventDefault(); // selecting text, not moving the card
+  const card = e.target.closest?.(".card");
   if (!card) return;
   dragId = card.dataset.id;
   e.dataTransfer.effectAllowed = "copy";
@@ -650,6 +700,7 @@ document.querySelector(".tools").addEventListener("drop", (e) => {
 });
 
 $("board").addEventListener("click", (e) => {
+  if (e.target.closest(".add-todo")) return e.preventDefault(); // typing a todo, not opening the note
   const act = e.target.closest(".act");
   if (act) {
     e.preventDefault();

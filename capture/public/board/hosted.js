@@ -164,6 +164,12 @@
       } else if (edit.type === "todo" && n) {
         const t = n.openTodos.find((x) => x.i === edit.i);
         if (t) { t.checked = !!edit.done; touch(n); }
+      } else if (edit.type === "addTodo" && n) {
+        n.openTodos.push({ i: edit.i, text: edit.text }); n.todos += 1; touch(n);
+      } else if (edit.type === "removeTodo" && n) {
+        const before = n.openTodos.length;
+        n.openTodos = n.openTodos.filter((x) => !(x.i === edit.i && x.text === edit.text));
+        n.todos -= before - n.openTodos.length;
       } else if (edit.type === "note") {
         if (edit.action === "restore" && removed.has(edit.id)) notes.set(edit.id, removed.get(edit.id));
         else if (n && edit.action !== "restore") { notes.delete(edit.id); removed.set(edit.id, n); }
@@ -231,7 +237,10 @@
   const jsonResponse = (body, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-  const ROUTES = { "/api/tags": "tags", "/api/todo": "todo", "/api/note": "note", "/api/create": "create" };
+  const ROUTES = {
+    "/api/tags": "tags", "/api/todo": "todo", "/api/note": "note", "/api/create": "create",
+    "/api/todo/add": "addTodo", "/api/todo/remove": "removeTodo",
+  };
 
   window.fetch = async (input, init = {}) => {
     const url = new URL(typeof input === "string" ? input : input.url, location.href);
