@@ -444,8 +444,12 @@ function toast(text, undo) {
   toastTimer = setTimeout(() => $("toast").classList.remove("show"), 6000);
 }
 
+// Notes tagged #hidden (or #hidden/…) never appear on the board; the Mac filters them out too.
+const isHidden = (tags) => tags.some((t) => t.toLowerCase() === "hidden" || t.toLowerCase().startsWith("hidden/"));
+const hiddenHere = new Map(); // notes hidden from this page, kept so Undo can bring them back
+
 async function retag(id, { add = [], remove = [] }, undoable = true) {
-  const note = state.notes.find((n) => n.id === id);
+  const note = state.notes.find((n) => n.id === id) || hiddenHere.get(id);
   if (!note) return;
   const already = add.filter((t) => note.tags.includes(t));
   add = add.filter((t) => !note.tags.includes(t));
@@ -460,6 +464,12 @@ async function retag(id, { add = [], remove = [] }, undoable = true) {
   const parents = (t) => t.split("/").slice(0, -1).map((_, i, a) => a.slice(0, i + 1).join("/"));
   const implied = [...new Set(add.flatMap(parents))].filter((p) => !before.includes(p));
   note.tags = [...new Set([...note.tags.filter((t) => !remove.includes(t)), ...implied, ...add])];  // optimistic
+  const syncVisibility = () => {
+    const shown = state.notes.includes(note);
+    if (isHidden(note.tags) && shown) { state.notes = state.notes.filter((n) => n !== note); hiddenHere.set(id, note); }
+    if (!isHidden(note.tags) && !shown) { state.notes.unshift(note); hiddenHere.delete(id); }
+  };
+  syncVisibility();
   renderChips(); render();
   try {
     const res = await fetch("/api/tags", {
@@ -469,10 +479,11 @@ async function retag(id, { add = [], remove = [] }, undoable = true) {
     });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
   } catch (e) {
-    note.tags = before; renderChips(); render();
+    note.tags = before; syncVisibility(); renderChips(); render();
     return toast(`Couldn't update Bear: ${e.message}`);
   }
-  const what = [...add.map((t) => `added #${t}`), ...remove.map((t) => `removed #${t}`)].join(", ");
+  const what = isHidden(note.tags) && !isHidden(before) ? "hidden from the board"
+    : [...add.map((t) => `added #${t}`), ...remove.map((t) => `removed #${t}`)].join(", ");
   toast(`${what[0].toUpperCase() + what.slice(1)} · ${note.title}`,
     undoable ? () => retag(id, { add: remove, remove: [...add, ...implied] }, false) : null);
   setTimeout(load, 600); // pick up the note text Bear rewrote
