@@ -106,6 +106,31 @@ def change_tags(note_id: str, add: list, remove: list) -> None:
                            capture_output=True, text=True, timeout=15, check=True)
 
 
+# Same rules as the capture app (capture/app/bear.ts): tags on the first line
+# become the note's tags instead of ending up inside the title heading.
+CAPTURE_TAG_RE = re.compile(r"(^|\s)#([\w-]+(?:/[\w-]+)*)")
+
+
+def create_note(content: str, url: str = "") -> str:
+    content, url = str(content).strip(), str(url).strip()
+    if not content:
+        raise ValueError("Can't save an empty note.")
+    if len(content) > 50_000:
+        raise ValueError("Note is too long.")
+    if url and not url.startswith(("http://", "https://")):
+        raise ValueError("URL must start with http:// or https://")
+    first, _, body = content.partition("\n")
+    tags = [m.group(2) for m in CAPTURE_TAG_RE.finditer(first)]
+    title = re.sub(r"\s+", " ", CAPTURE_TAG_RE.sub(r"\1", first)).strip() or "Untitled"
+    text = "\n\n".join(p for p in (body.strip(), url) if p)
+    args = [BEARCLI, "create", title, "--content", bear_escape(text), "--format", "json", "--fields", "id"]
+    if tags:
+        args += ["--tags", ",".join(tags)]
+    out = subprocess.run(args, capture_output=True, text=True, timeout=15, check=True).stdout
+    data = json.loads(out)
+    return (data[0] if isinstance(data, list) else data)["id"]
+
+
 def move_note(note_id: str, action: str) -> None:
     """Trash, archive, or restore a note. Trash is Bear's soft delete, never permanent."""
     if not NOTE_ID_RE.match(note_id) or action not in ("trash", "archive", "restore"):
@@ -215,11 +240,14 @@ class Handler(BaseHTTPRequestHandler):
         # approve, so other websites can't post here).
         if self.headers.get("Host") not in ALLOWED_HOSTS or self.headers.get("X-Bear-Board") != "1":
             return self._send(403, b"forbidden", "text/plain")
-        if self.path not in ("/api/tags", "/api/todo", "/api/note"):
+        if self.path not in ("/api/tags", "/api/todo", "/api/note", "/api/create"):
             return self._send(404, b"not found", "text/plain")
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            req = json.loads(self.rfile.read(min(length, 10_000)) or "{}")
+            req = json.loads(self.rfile.read(min(length, 200_000)) or "{}")
+            if self.path == "/api/create":
+                note_id = create_note(req.get("content", ""), req.get("url", ""))
+                return self._send(200, json.dumps({"ok": True, "id": note_id}).encode(), "application/json")
             if self.path == "/api/tags":
                 change_tags(req.get("id", ""), req.get("add") or [], req.get("remove") or [])
             elif self.path == "/api/note":

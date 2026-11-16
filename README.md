@@ -1,142 +1,63 @@
-# notion-inbox
+# Bear board + capture
 
-A personal capture → triage pipeline. Drop items into a web form from anywhere; a scheduled Claude agent runs every morning, classifies each item, and files it into the right Notion database automatically.
-
-## How it works
+Two small tools around [Bear](https://bear.app) notes. Bear stays the only place notes live. These tools just make it easier to get things in and to see what's there.
 
 ```
-Capture form (Vercel, password protected)
+Phone / anywhere                      Mac
+────────────────                      ───
+Capture form (capture/)               Bear Board (bear_board/)
+  type a note, #tags, URL               card board over all your notes
+        ↓                                 ↕  bearcli
+  bear://x-callback-url/create          Bear
         ↓
-Next.js server action → Notion API
-        ↓
-Notes* database (Status: Inbox)  ← staging area for everything
-        ↓
-Scheduled Claude agent (CCR, daily at 9am ET)
-        ↓
-Classifies each inbox item by title + URL
-        ↓
-Files into: Tasks*, Recipes, Books*, Concert Tracker, Resources*, Notes* (Draft)
-Archives the original staging note
+  Bear on that device
 ```
 
-**Example:** You find a recipe → open the capture form → type "Chicken Wrap Recipe" and paste the URL → by 9am the next morning it's already in your Recipes database.
+> The original Notion inbox pipeline (capture form → Notion, daily Claude triage agent, Games Tracker) is preserved at the `notion-archive` tag: `git checkout notion-archive`.
 
 ---
 
-## Triage routing
+## Bear Board (`bear_board/`)
 
-| Type | Destination | Signal |
-|---|---|---|
-| Recipe | Recipes | Recipe site URL or dish/recipe in title |
-| Book | Books* | Book title, "read X", "book by Y" |
-| Concert | Concert Tracker | Artist + venue, ticketing URL |
-| Task | Tasks* | Action verbs: buy, call, fix, submit, email… |
-| Article | Resources* (Article) | News/blog URL or article headline |
-| Video | Resources* (Video) | YouTube, Vimeo, TikTok |
-| Podcast | Resources* (Podcast) | Podcast URL or episode mention |
-| Website | Resources* (Website) | Any other URL |
-| Note/Idea | Notes* → Draft | No URL, open-ended thought |
+A local web app that shows your Bear notes as a card board. It runs only on your Mac and reads and writes through Bear's command-line tool, `bearcli`.
 
-After filing, the staging note is archived (not deleted) — fully reversible.
+**What it does:**
 
----
-
-## Repo layout
-
-```
-notion-inbox/
-├── capture/                    ← Next.js app, deployed to Vercel
-│   ├── proxy.ts                ← auth middleware (cookie-based password check)
-│   ├── app/
-│   │   ├── page.tsx            ← capture form (title + optional URL)
-│   │   ├── login/page.tsx      ← password login
-│   │   └── actions/
-│   │       ├── auth.ts         ← login server action (sets 30-day cookie)
-│   │       └── capture.ts      ← writes to Notes* via Notion API
-│   └── .env.local.example
-│
-├── notion_inbox/               ← Python triage CLI
-│   ├── cli.py                  ← entry point: reads inbox, classifies, routes, archives
-│   ├── notion_client.py        ← Notion SDK wrapper (all DB read/write/archive ops)
-│   ├── triage.py               ← Claude classification logic
-│   └── routers/
-│
-├── tests/
-│   └── test_triage.py
-│
-├── pyproject.toml              ← CLI deps + `notion-triage` script
-├── .env.example                ← required env vars for the CLI
-└── CONTEXT.md                  ← full architecture + Notion schema reference
-```
-
----
-
-## Capture app (`capture/`)
-
-Next.js 16 App Router, TypeScript, Tailwind. Deployed to Vercel — auto-deploys on push to `main`.
-
-**Env vars** (set in Vercel dashboard + `capture/.env.local` for local dev):
-
-```
-CAPTURE_PASSWORD=          # shared password for the form
-NOTION_TOKEN=              # Notion integration token
-NOTION_NOTES_DB_ID=        # Notes* database ID
-```
-
----
-
-## Triage CLI (`notion_inbox/`)
-
-A Python package for running triage locally or testing changes. The scheduled agent handles production; this is for manual runs and development.
-
-**Setup:**
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
-cp .env.example .env
-# fill in .env with your tokens and DB IDs
-```
+- Masonry board of cards with the newest notes across the top and pinned notes first, colored by tag
+- Tag chips with sub-tags for filtering, full-text search (`/`), and a Todos view
+- Link previews built from each page's title and image
+- Light, dark, and system themes
+- **＋ New note** (or press `N`): first-line `#tags` become the note's tags
+- Drag a card onto a tag chip to add a tag, or click × on a tag to remove it
+- Check off todos right on the cards
+- Archive a note, or move it to Bear's trash. Never a permanent delete.
+- Undo on every change
 
 **Run:**
 
 ```bash
-notion-triage
+python3 bear_board/server.py      # http://127.0.0.1:8787
 ```
 
-Reads all Notes with Status = Inbox, classifies each one with Claude, files it, and archives the original.
+There are no dependencies to install. It needs Bear 2 with `bearcli` at `/Applications/Bear.app/Contents/MacOS/bearcli`; override that path with `BEARCLI=…` and the port with `BEAR_BOARD_PORT=…`.
 
-**Env vars** (`.env`):
-
-```
-NOTION_TOKEN=
-ANTHROPIC_API_KEY=         # only needed for local CLI use
-NOTION_NOTES_DB_ID=
-NOTION_TASKS_DB_ID=
-NOTION_RESOURCES_DB_ID=
-NOTION_BOOKS_DB_ID=
-NOTION_RECIPES_DB_ID=
-NOTION_CONCERTS_DB_ID=
-```
+**Security:** the server listens on 127.0.0.1 only. Requests that change notes need an `X-Bear-Board` header and a matching `Host`, so other websites can't send changes. Checking a todo or changing tags doesn't change a note's modified date.
 
 ---
 
-## Scheduled agent
+## Capture form (`capture/`)
 
-Triage runs automatically via a Claude Code Remote (CCR) routine — no local machine or cron job needed.
+A one-page Next.js app for saving a note from your phone. When you press save, it opens a `bear://x-callback-url/create` link, so **Bear on that device creates the note**. Bear then sends you back to the form with a confirmation. Nothing is sent to or stored on a server, so there are no secrets or env vars.
 
-- **Schedule:** daily at 9am ET
-- **Model:** claude-sonnet-4-6
-- **No `ANTHROPIC_API_KEY` required** — the CCR agent IS Claude; it classifies natively
-- Routine config + DB IDs are embedded in the routine prompt at claude.ai/code/routines
+- Tags on the first line become the note's tags: `pad thai #recipe` → a note called "pad thai" tagged `#recipe`.
+- Tags further down stay in the text, and Bear picks them up as usual.
+- Nested tags work, like `#travel/japan`.
+- If the hand-off to Bear doesn't happen, the draft is still there next time you open the page.
 
-To trigger manually, ask Claude: *"run my triage routine"*
+**Run locally:**
 
----
+```bash
+cd capture && npm install && npm run dev   # http://localhost:3000
+```
 
-## Notion databases
-
-The integration (named **Inbox Triage**) has full workspace access via the Emily's Second Brain top-level page. It writes to: Notes*, Tasks*, Resources*, Books*, Recipes, Concert Tracker.
-
-Full schema reference and database IDs are in [CONTEXT.md](CONTEXT.md).
+It deploys to Vercel and auto-deploys on push to `main`.
