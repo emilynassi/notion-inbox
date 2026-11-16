@@ -19,6 +19,17 @@
   let cache = null; // { at, snapshot, pending: [{qid, at, edit}] }
   window.BOARD_LOGIN_URL = "/board/";
   window.BOARD_HOSTED = true;
+  // What ↻ found. The website can't make the Mac sync; it can only fetch what the Mac last uploaded.
+  window.BOARD_REFRESH_MESSAGE = () => {
+    if (!cache) return "Checked for updates";
+    const synced = cache.snapshot.syncedAt ? `Mac last synced ${ago(cache.snapshot.syncedAt)}` : "Your Mac hasn't synced yet";
+    const waiting = cache.pending.length ? ` · ${cache.pending.length} waiting for it` : "";
+    return `Up to date · ${synced}${waiting}`;
+  };
+  document.addEventListener("DOMContentLoaded", () => {
+    const btn = document.getElementById("refresh");
+    if (btn) { btn.title = "Check for updates from your Mac"; btn.setAttribute("aria-label", btn.title); }
+  });
 
   // ---- key storage ----
   function idb() {
@@ -230,7 +241,9 @@
     await window.BOARD_READY;
     try {
       if (url.pathname === "/api/notes") {
-        const data = await refresh(false);
+        // ↻ asks for fresh data; still at most every 10 s, to protect the storage quota.
+        const fresh = url.searchParams.has("fresh") && (!cache || Date.now() - cache.at > 10_000);
+        const data = await refresh(fresh);
         showStatus(data);
         return jsonResponse(withPending(data));
       }
