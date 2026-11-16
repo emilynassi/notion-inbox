@@ -1,9 +1,11 @@
-"""Local read-only board for Bear notes.
+"""Card board for Bear notes.
 
-Runs a tiny web server on 127.0.0.1 that reads notes through Bear's
-`bearcli` and serves them to a single-page card board.
+Runs a tiny web server on 127.0.0.1 that reads and edits notes through Bear's
+`bearcli`. Every page needs a password login (see auth.py). Other devices can
+reach it through Tailscale (see install.sh).
 
-    python3 bear_board/server.py            # http://127.0.0.1:8787
+    python3 bear_board/server.py --set-password   # once
+    python3 bear_board/server.py                  # http://127.0.0.1:8787
     BEAR_BOARD_PORT=9000 python3 bear_board/server.py
 """
 
@@ -14,6 +16,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlparse
@@ -22,7 +25,14 @@ from urllib.request import Request, urlopen
 BEARCLI = os.environ.get("BEARCLI", "/Applications/Bear.app/Contents/MacOS/bearcli")
 HOST = "127.0.0.1"  # never expose notes beyond this machine
 PORT = int(os.environ.get("BEAR_BOARD_PORT", "8787"))
-INDEX = Path(__file__).with_name("index.html")
+# The board page is shared with the hosted website; the local server drops its hosted-only scripts.
+INDEX = Path(__file__).resolve().parent.parent / "capture" / "public" / "board" / "index.html"
+HOSTED_BLOCK_RE = re.compile(r"<!--HOSTED.*?<!--/HOSTED-->", re.S)
+LOGIN = Path(__file__).with_name("login.html")
+CFG: dict = {}  # login config, loaded in main()
+
+sys.path.insert(0, str(Path(__file__).parent))
+import auth  # noqa: E402
 
 TODO_RE = re.compile(r"^\s*[-*]\s+\[( |x|X)\]\s+(.*)$")
 URL_RE = re.compile(r"https?://[^\s)\]>]+")
@@ -81,7 +91,12 @@ def shape(note: dict) -> dict:
 
 
 NOTE_ID_RE = re.compile(r"^[0-9A-Fa-f-]{8,64}$")
-ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
+# Requests must name one of these hosts. Blocks DNS rebinding, where a web page
+# points its own domain at 127.0.0.1 to read the board. Extra names (like the
+# Mac's Tailscale address) come from BEAR_BOARD_HOSTS, comma-separated.
+ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"} | {
+    h.strip().lower() for h in os.environ.get("BEAR_BOARD_HOSTS", "").split(",") if h.strip()
+}
 
 
 def clean_tags(tags) -> list[str]:
@@ -219,9 +234,57 @@ def link_preview(url: str) -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
+    def _host_ok(self) -> bool:
+        if (self.headers.get("Host") or "").lower() in ALLOWED_HOSTS:
+            return True
+        self._send(403, b"forbidden host", "text/plain")
+        return False
+
+    # ---- Login ----
+    def _secure(self) -> bool:
+        # Anything not addressed to localhost arrives through Tailscale's HTTPS proxy.
+        return (self.headers.get("Host") or "").split(":")[0] not in ("127.0.0.1", "localhost")
+
+    def _authed(self) -> bool:
+        if auth.session_valid(CFG, self.headers.get("Cookie")):
+            return True
+        if self.path.startswith("/api/"):
+            self._send(401, b'{"error":"Signed out. Reload to sign in."}', "application/json")
+        else:
+            self._redirect("/login")
+        return False
+
+    def _redirect(self, to: str, cookie: str | None = None):
+        self.send_response(303)
+        self.send_header("Location", to)
+        self.send_header("Cache-Control", "no-store")
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _login_page(self, error: str = "", code: int = 200):
+        page = LOGIN.read_text().replace("{{error}}", html.escape(error))
+        self._send(code, page.encode(), "text/html; charset=utf-8")
+
+    def _login(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        form = parse_qs(self.rfile.read(min(length, 4_000)).decode("utf-8", "replace"))
+        ok, message = auth.check_password(CFG, form.get("password", [""])[0])
+        if not ok:
+            return self._login_page(message, 401)
+        self._redirect("/", auth.session_cookie(auth.new_session(CFG), self._secure()))
+
     def do_GET(self):
+        if not self._host_ok():
+            return
+        if self.path == "/login":
+            return self._redirect("/") if auth.session_valid(CFG, self.headers.get("Cookie")) else self._login_page()
+        if not self._authed():
+            return
         if self.path in ("/", "/index.html"):
-            self._send(200, INDEX.read_bytes(), "text/html; charset=utf-8")
+            page = HOSTED_BLOCK_RE.sub("", INDEX.read_text())
+            self._send(200, page.encode(), "text/html; charset=utf-8")
         elif self.path.startswith("/api/preview?"):
             url = parse_qs(urlparse(self.path).query).get("url", [""])[0]
             self._send(200, json.dumps(link_preview(url)).encode(), "application/json")
@@ -238,7 +301,15 @@ class Handler(BaseHTTPRequestHandler):
         # Only accept writes from the board itself: right Host (blocks DNS
         # rebinding) and a custom header (forces a CORS preflight we never
         # approve, so other websites can't post here).
-        if self.headers.get("Host") not in ALLOWED_HOSTS or self.headers.get("X-Bear-Board") != "1":
+        if not self._host_ok():
+            return
+        if self.path == "/login":
+            return self._login()
+        if self.path == "/logout":
+            return self._redirect("/login", auth.session_cookie("", self._secure(), max_age=0))
+        if not self._authed():
+            return
+        if self.headers.get("X-Bear-Board") != "1":
             return self._send(403, b"forbidden", "text/plain")
         if self.path not in ("/api/tags", "/api/todo", "/api/note", "/api/create"):
             return self._send(404, b"not found", "text/plain")
@@ -275,6 +346,14 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    global CFG
+    if "--set-password" in sys.argv[1:]:
+        return auth.set_password_interactive()
+    if not os.access(BEARCLI, os.X_OK):
+        raise SystemExit(f"Can't find Bear's bearcli at {BEARCLI}. Install Bear 2 or set BEARCLI=/path/to/bearcli.")
+    CFG = auth.load_config()
+    if not CFG:
+        raise SystemExit("No board password yet. Set one with:\n  python3 bear_board/server.py --set-password")
     print(f"Bear board on http://{HOST}:{PORT}")
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
 
