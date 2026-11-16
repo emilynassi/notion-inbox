@@ -106,6 +106,13 @@ def change_tags(note_id: str, add: list, remove: list) -> None:
                            capture_output=True, text=True, timeout=15, check=True)
 
 
+def move_note(note_id: str, action: str) -> None:
+    """Trash, archive, or restore a note. Trash is Bear's soft delete, never permanent."""
+    if not NOTE_ID_RE.match(note_id) or action not in ("trash", "archive", "restore"):
+        raise ValueError("bad note action")
+    subprocess.run([BEARCLI, action, note_id], capture_output=True, text=True, timeout=15, check=True)
+
+
 class Conflict(Exception):
     """The note changed since the board loaded it."""
 
@@ -208,13 +215,15 @@ class Handler(BaseHTTPRequestHandler):
         # approve, so other websites can't post here).
         if self.headers.get("Host") not in ALLOWED_HOSTS or self.headers.get("X-Bear-Board") != "1":
             return self._send(403, b"forbidden", "text/plain")
-        if self.path not in ("/api/tags", "/api/todo"):
+        if self.path not in ("/api/tags", "/api/todo", "/api/note"):
             return self._send(404, b"not found", "text/plain")
         try:
             length = int(self.headers.get("Content-Length", "0"))
             req = json.loads(self.rfile.read(min(length, 10_000)) or "{}")
             if self.path == "/api/tags":
                 change_tags(req.get("id", ""), req.get("add") or [], req.get("remove") or [])
+            elif self.path == "/api/note":
+                move_note(req.get("id", ""), req.get("action", ""))
             else:
                 set_todo(req.get("id", ""), req.get("i"), req.get("text", ""), bool(req.get("done")))
             self._send(200, b'{"ok":true}', "application/json")
