@@ -82,6 +82,44 @@ Settings (environment variables):
 
 ---
 
+## Hosted board (any computer, Mac asleep or not)
+
+The same board as a website, at `https://<your-capture-site>/board`. It works from any browser, even when your Mac is asleep or off.
+
+```
+Mac with Bear (every 10 min while awake)          Vercel                       Any browser
+ sync_agent.py: Bear → encrypt → upload  ──────►  encrypted snapshot  ──────►  sign in → decrypt here
+                apply queued changes     ◄──────  encrypted change queue ◄──  tags, todos, new notes,
+                                                                             archive/trash
+```
+
+- **Encrypted end to end.** Your Mac encrypts notes before uploading them, with a key derived from your board password: PBKDF2-SHA256 with 600k iterations, then HKDF and AES-256-GCM. Vercel stores only scrambled data and a sign-in verifier. The browser derives the key itself and keeps it on that device.
+- **Changes made while the Mac sleeps are queued.** They show on the board right away, marked "Waiting for your Mac", and apply to Bear when it next syncs. A change that can no longer apply (say, the note was edited in Bear meanwhile) is skipped and shown as a warning instead.
+- **Link previews are fetched by your Mac**, so the website never sees your links.
+
+**Set up (once):**
+
+1. In Vercel, open the capture project → **Storage** → create a **Blob** store and connect it to the project. This adds `BLOB_READ_WRITE_TOKEN`.
+2. On the Mac with Bear:
+   ```bash
+   bear_board/sync_setup.sh
+   ```
+   It asks for the site URL and a board password. It then prints one value to add in Vercel as `BOARD_AGENT_TOKEN_SHA256`; redeploy after adding it. Then it does the first sync and syncs every 10 minutes from then on (`--uninstall` stops it).
+3. Open `https://<your-capture-site>/board` anywhere and sign in.
+
+Re-run `sync_setup.sh` to change the password. That re-encrypts everything and signs out every device.
+
+**Free-tier limits.** Vercel Blob's Hobby tier allows about 2,000 uploads and 10,000 reads a month, and locks the store for 30 days if you go over. The design keeps well under that:
+- The agent checks for changes with one read every 10 minutes.
+- It uploads only when something changed: right after applying your changes, otherwise at most every 30 minutes, plus a heartbeat every 6 hours.
+- Browsers refresh at most once a minute.
+
+As a result, edits made in Bear itself can take up to 30 minutes to show on the website.
+
+**Check on it:** run `~/.config/bear-board/venv/bin/python bear_board/sync_agent.py status`, or look at the log in `~/Library/Logs/bear-board-sync.log`.
+
+---
+
 ## Capture form (`capture/`)
 
 A one-page Next.js app for saving a note from your phone. When you press save, it opens a `bear://x-callback-url/create` link, so **Bear on that device creates the note**. Bear then sends you back to the form with a confirmation. Nothing is sent to or stored on a server, so there are no secrets or env vars.

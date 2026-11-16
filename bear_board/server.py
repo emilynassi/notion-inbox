@@ -25,7 +25,9 @@ from urllib.request import Request, urlopen
 BEARCLI = os.environ.get("BEARCLI", "/Applications/Bear.app/Contents/MacOS/bearcli")
 HOST = "127.0.0.1"  # never expose notes beyond this machine
 PORT = int(os.environ.get("BEAR_BOARD_PORT", "8787"))
-INDEX = Path(__file__).with_name("index.html")
+# The board page is shared with the hosted website; the local server drops its hosted-only scripts.
+INDEX = Path(__file__).resolve().parent.parent / "capture" / "public" / "board" / "index.html"
+HOSTED_BLOCK_RE = re.compile(r"<!--HOSTED.*?<!--/HOSTED-->", re.S)
 LOGIN = Path(__file__).with_name("login.html")
 CFG: dict = {}  # login config, loaded in main()
 
@@ -281,7 +283,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authed():
             return
         if self.path in ("/", "/index.html"):
-            self._send(200, INDEX.read_bytes(), "text/html; charset=utf-8")
+            page = HOSTED_BLOCK_RE.sub("", INDEX.read_text())
+            self._send(200, page.encode(), "text/html; charset=utf-8")
         elif self.path.startswith("/api/preview?"):
             url = parse_qs(urlparse(self.path).query).get("url", [""])[0]
             self._send(200, json.dumps(link_preview(url)).encode(), "application/json")
