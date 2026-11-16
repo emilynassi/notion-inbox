@@ -7,6 +7,7 @@ Databases and their IDs (set via env vars):
   NOTION_BOOKS_DB_ID     – Books*
   NOTION_RECIPES_DB_ID   – Recipes
   NOTION_CONCERTS_DB_ID  – Concert Tracker
+  NOTION_GAMES_DB_ID     – Games Tracker
 """
 
 import os
@@ -193,17 +194,104 @@ def create_concert(
     venue: str = "",
     location: str = "",
     notes: str = "",
+    status: str = "Upcoming",
+    date: str = "",
 ) -> dict:
-    """Create an entry in Concert Tracker with Status = Upcoming."""
+    """Create an entry in Concert Tracker.
+
+    Valid statuses: Upcoming, Attended, Missed
+    Date: ISO 8601 string, e.g. "2025-11-12"
+    """
+    valid_statuses = {"Upcoming", "Attended", "Missed"}
+    if status not in valid_statuses:
+        status = "Upcoming"
     db_id = os.environ["NOTION_CONCERTS_DB_ID"]
     props: dict = {
         "Artist/Band": {"title": [{"text": {"content": artist}}]},
-        "Status": {"select": {"name": "Upcoming"}},
+        "Status": {"select": {"name": status}},
     }
     if venue:
         props["Venue"] = {"rich_text": [{"text": {"content": venue}}]}
     if location:
         props["Location"] = {"rich_text": [{"text": {"content": location}}]}
+    if notes:
+        props["Notes"] = {"rich_text": [{"text": {"content": notes}}]}
+    if date:
+        props["Date"] = {"date": {"start": date}}
+    return get_client().pages.create(
+        parent={"database_id": db_id},
+        properties=props,
+    )
+
+
+def get_all_games() -> list[dict]:
+    """Return every page in Games Tracker (handles pagination)."""
+    db_id = os.environ["NOTION_GAMES_DB_ID"]
+    pages: list[dict] = []
+    cursor: str | None = None
+    while True:
+        resp = get_client().databases.query(
+            database_id=db_id,
+            **({"start_cursor": cursor} if cursor else {}),
+        )
+        pages.extend(resp["results"])
+        if not resp.get("has_more"):
+            break
+        cursor = resp.get("next_cursor")
+    return pages
+
+
+def update_game_enrichment(
+    page_id: str,
+    notes: str | None = None,
+    status: str | None = None,
+) -> None:
+    """Update Notes and/or Status on an existing Games Tracker page."""
+    valid_statuses = {"Upcoming", "Attended", "Missed"}
+    props: dict = {}
+    if notes is not None:
+        props["Notes"] = {"rich_text": [{"text": {"content": notes}}]}
+    if status in valid_statuses:
+        props["Status"] = {"select": {"name": status}}
+    if props:
+        get_client().pages.update(page_id=page_id, properties=props)
+
+
+def create_game(
+    team_event: str,
+    opponent: str = "",
+    venue: str = "",
+    location: str = "",
+    sport: str = "",
+    status: str = "Upcoming",
+    date: str = "",
+    notes: str = "",
+) -> dict:
+    """Create an entry in Games Tracker.
+
+    Valid sports: Hockey, Baseball, Basketball, Football, Soccer
+    Valid statuses: Upcoming, Attended, Missed
+    Date: ISO 8601 string, e.g. "2025-11-12"
+    """
+    valid_sports = {"Hockey", "Baseball", "Basketball", "Football", "Soccer"}
+    valid_statuses = {"Upcoming", "Attended", "Missed"}
+    if status not in valid_statuses:
+        status = "Upcoming"
+    db_id = os.environ["NOTION_GAMES_DB_ID"]
+    props: dict = {
+        "Team/Event": {"title": [{"text": {"content": team_event}}]},
+        "Status": {"select": {"name": status}},
+    }
+    if sport in valid_sports:
+        props["Sport"] = {"select": {"name": sport}}
+    if opponent:
+        props["Opponent"] = {"rich_text": [{"text": {"content": opponent}}]}
+    if venue:
+        props["Venue"] = {"rich_text": [{"text": {"content": venue}}]}
+    if location:
+        props["Location"] = {"rich_text": [{"text": {"content": location}}]}
+    if date:
+        props["Date"] = {"date": {"start": date}}
     if notes:
         props["Notes"] = {"rich_text": [{"text": {"content": notes}}]}
     return get_client().pages.create(
