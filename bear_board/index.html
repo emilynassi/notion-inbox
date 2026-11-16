@@ -142,6 +142,22 @@
   .toast span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .toast button { background: transparent; color: inherit; border-color: currentColor; padding: 3px 12px; }
 
+  /* New note dialog */
+  dialog { width: min(560px, calc(100vw - 32px)); border: 1px solid var(--border); border-radius: 16px;
+    padding: 24px; background: var(--bg); color: var(--text); box-shadow: 0 20px 60px rgb(0 0 0 / .25); }
+  dialog::backdrop { background: rgb(0 0 0 / .35); }
+  dialog h2 { margin: 0 0 16px; font: 700 22px/1 "Times New Roman", Georgia, serif; letter-spacing: -.5px; }
+  dialog form { display: flex; flex-direction: column; gap: 12px; }
+  dialog textarea, dialog input { font: inherit; color: var(--text); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; resize: vertical; outline: none; }
+  dialog textarea:focus, dialog input:focus { border-color: var(--muted); }
+  dialog .tags { margin: 0; min-height: 0; }
+  .dialog-actions { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 4px; }
+  .kbd-hint { margin-right: auto; color: var(--muted); font-size: 12px; }
+  button.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+  button.primary:disabled { opacity: .4; cursor: default; }
+  @media (max-width: 640px) { .kbd-hint { display: none; } }
+
   /* Archive / trash */
   .meta { align-items: center; min-height: 28px; }
   .actions { display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
@@ -174,6 +190,9 @@
       <input id="q" type="search" placeholder="Search your notes" autocomplete="off">
       <kbd>/</kbd>
     </label>
+    <button class="refresh" id="new" title="New note (N)" aria-label="New note">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
     <button class="refresh" id="refresh" title="Reload from Bear" aria-label="Reload from Bear">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/></svg>
     </button>
@@ -185,6 +204,19 @@
   <p class="status" id="status">Loading notes from Bear…</p>
   <div class="board" id="board"></div>
 </main>
+<dialog id="capture" aria-label="New note">
+  <form id="captureForm" method="dialog">
+    <h2>New note</h2>
+    <textarea id="cContent" rows="6" placeholder="What's on your mind?&#10;#tags work, like #travel/japan" required></textarea>
+    <input id="cUrl" type="url" placeholder="URL (optional)">
+    <div class="tags" id="cTags"></div>
+    <div class="dialog-actions">
+      <span class="kbd-hint">⌘↵ to save · Esc to close</span>
+      <button type="button" id="cCancel">Cancel</button>
+      <button type="submit" class="primary" id="cSave">Save to Bear</button>
+    </div>
+  </form>
+</dialog>
 <div class="toast" id="toast" role="status"><span id="toastText"></span><button id="toastUndo">Undo</button></div>
 <script>
 const state = { notes: [], q: "", root: null, tag: null, todoView: false };
@@ -474,6 +506,51 @@ async function moveNote(id, action) {
   });
 }
 
+// ---- New note ----
+// Mirrors the server's (and capture app's) rule: first-line #tags become the note's tags.
+const CAPTURE_TAG_RE = /(^|\s)#([\p{L}\p{N}_-]+(?:\/[\p{L}\p{N}_-]+)*)/gu;
+function captureTags() {
+  return [...new Set([...$("cContent").value.matchAll(CAPTURE_TAG_RE)].map((m) => m[2]))];
+}
+function openCapture() {
+  $("capture").showModal();
+  $("cContent").focus();
+  updateCapture();
+}
+function updateCapture() {
+  $("cTags").innerHTML = captureTags().map((t) => `<span class="tag" style="--h:${hue(t)}">#${esc(t)}</span>`).join("");
+  $("cSave").disabled = !$("cContent").value.trim();
+}
+$("cContent").addEventListener("input", updateCapture);
+$("new").onclick = openCapture;
+$("cCancel").onclick = () => $("capture").close();
+$("capture").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $("captureForm").requestSubmit(); }
+});
+$("captureForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!$("cContent").value.trim()) return;
+  $("cSave").disabled = true;
+  try {
+    const res = await fetch("/api/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Bear-Board": "1" },
+      body: JSON.stringify({ content: $("cContent").value, url: $("cUrl").value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    $("capture").close();
+    $("cContent").value = ""; $("cUrl").value = "";
+    await load();
+    const note = state.notes.find((n) => n.id === data.id);
+    toast(`Saved to Bear · ${note?.title ?? "New note"}`, () => moveNote(data.id, "trash"));
+  } catch (err) {
+    toast(`Couldn't save: ${err.message}`);
+  } finally {
+    updateCapture();
+  }
+});
+
 let dragId = null;
 $("board").addEventListener("dragstart", (e) => {
   const card = e.target.closest(".card");
@@ -539,7 +616,10 @@ $("board").addEventListener("click", (e) => {
 $("q").addEventListener("input", (e) => { state.q = e.target.value.trim(); render(); });
 $("refresh").onclick = load;
 document.addEventListener("keydown", (e) => {
-  if (e.key === "/" && document.activeElement !== $("q")) { e.preventDefault(); $("q").focus(); }
+  if ($("capture").open) return;  // the dialog handles its own keys
+  const typing = e.target.closest?.("input, textarea, [contenteditable]");
+  if (e.key === "/" && !typing) { e.preventDefault(); $("q").focus(); }
+  if (e.key.toLowerCase() === "n" && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); openCapture(); }
   if (e.key === "Escape") { $("q").value = ""; state.q = ""; $("q").blur(); render(); }
 });
 window.addEventListener("focus", load); // pick up edits made in Bear
