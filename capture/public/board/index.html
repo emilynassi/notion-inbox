@@ -65,6 +65,10 @@
   button:hover { border-color: var(--muted); }
   button.on { background: var(--text); color: var(--bg); border-color: var(--text); }
   .refresh { width: 54px; height: 54px; justify-content: center; border-radius: 12px; padding: 0; }
+  .refresh.spinning svg { animation: spin .8s linear infinite; }
+  .refresh.spinning { cursor: progress; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .refresh.spinning svg { animation-duration: 2.4s; } }
   .chips { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
   .chips.sub { margin-top: 10px; }
   .chips.sub button { font-size: 13px; padding: 4px 12px; }
@@ -288,17 +292,33 @@ const fmtDate = (iso) => {
 };
 const hostOf = (u) => { try { const x = new URL(u); return x.hostname.replace(/^www\./, "") + x.pathname.replace(/\/$/, ""); } catch { return u; } };
 
-async function load() {
+async function load(fresh = false) {
   try {
-    const res = await fetch("/api/notes");
+    // fresh: skip the website's once-a-minute cache (the ↻ button).
+    const res = await fetch(fresh === true ? "/api/notes?fresh=1" : "/api/notes");
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || res.statusText);
     state.notes = data;
     renderChips();
     render();
+    return true;
   } catch (e) {
     $("status").textContent = "Couldn't read Bear: " + e.message;
+    return false;
   }
+}
+
+// ↻ : reload now, spin while it works, then say what happened.
+async function refreshNow() {
+  const btn = $("refresh");
+  if (btn.classList.contains("spinning")) return;
+  btn.classList.add("spinning");
+  const started = Date.now();
+  const ok = await load(true);
+  await new Promise((r) => setTimeout(r, Math.max(0, 500 - (Date.now() - started)))); // let the spin register
+  btn.classList.remove("spinning");
+  if (!ok) return toast("Couldn't refresh. Check your connection and try again.");
+  toast(window.BOARD_REFRESH_MESSAGE ? window.BOARD_REFRESH_MESSAGE() : `Reloaded from Bear · ${state.notes.length} notes`);
 }
 
 function tagCounts() {
@@ -650,7 +670,7 @@ $("board").addEventListener("click", (e) => {
   if (link) { e.preventDefault(); window.open(link.dataset.href, "_blank", "noopener"); }
 });
 $("q").addEventListener("input", (e) => { state.q = e.target.value.trim(); render(); });
-$("refresh").onclick = load;
+$("refresh").onclick = refreshNow;
 document.addEventListener("keydown", (e) => {
   if ($("capture").open) return;  // the dialog handles its own keys
   const typing = e.target.closest?.("input, textarea, [contenteditable]");

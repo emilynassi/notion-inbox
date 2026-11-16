@@ -297,7 +297,7 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.startswith("/api/preview?"):
             url = parse_qs(urlparse(self.path).query).get("url", [""])[0]
             self._send(200, json.dumps(link_preview(url)).encode(), "application/json")
-        elif self.path == "/api/notes":
+        elif urlparse(self.path).path == "/api/notes":  # ?fresh=1 is a no-op here: always read live from Bear
             try:
                 body = json.dumps(load_notes()).encode()
                 self._send(200, body, "application/json")
