@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Inbox",
+  title: "Capture",
 };
 
 export default function RootLayout({
